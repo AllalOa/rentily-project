@@ -1,7 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Api\ListingController;
+use App\Http\Controllers\ListingController; // Updated import
 use App\Http\Controllers\Api\BookingController;
 use App\Http\Controllers\Api\ReviewController;
 use App\Http\Controllers\Api\MessageController;
@@ -9,19 +9,6 @@ use App\Http\Controllers\Api\FavoriteController;
 use App\Http\Controllers\Api\AuthController;
 use Illuminate\Foundation\Auth\EmailVerificationRequest;
 use Illuminate\Http\Request;
-
-// For web route group example (in routes/web.php):
-Route::middleware(['auth:sanctum'])->group(function () {
-    Route::get('/email/verify/{id}/{hash}', function (EmailVerificationRequest $request) {
-        $request->fulfill();
-        return response()->json(['message' => 'Email verified']);
-    })->name('verification.verify');
-
-    Route::post('/email/verification-notify', function (Request $request) {
-        $request->user()->sendEmailVerificationNotification();
-        return response()->json(['message' => 'Verification email sent!']);
-    })->name('verification.send');
-});
 
 Route::get('/health', fn () => response()->json(['ok' => true]));
 
@@ -32,9 +19,13 @@ Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
 Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 Route::post('/verify-email', [AuthController::class, 'verifyEmail']);
 
-// Public listings and reviews
-Route::get('/listings', [ListingController::class, 'index']);
-Route::get('/listings/{listing}', [ListingController::class, 'show']);
+Route::post('/test-upload', [ListingController::class, 'testUpload'])->middleware('auth:sanctum');
+
+// Public listings (for browsing)
+Route::get('/listings', [ListingController::class, 'publicIndex']); // Add new method for public listings
+Route::get('/listings/{listing}', [ListingController::class, 'publicShow']); // Add new method for public show
+
+// Public reviews
 Route::get('/reviews', [ReviewController::class, 'index']);
 
 // Protected routes (require authentication)
@@ -54,10 +45,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/preferences', [AuthController::class, 'getPreferences']);
     Route::put('/preferences', [AuthController::class, 'updatePreferences']);
 
-    // Listings (host)
-    Route::post('/listings', [ListingController::class, 'store']);
-    Route::put('/listings/{listing}', [ListingController::class, 'update']);
-    Route::delete('/listings/{listing}', [ListingController::class, 'destroy']);
+    // Host Listings CRUD (owner only)
+    Route::prefix('host')->group(function () {
+        Route::get('/listings', [ListingController::class, 'index']);
+        Route::post('/listings', [ListingController::class, 'store']);
+        Route::get('/listings/{id}', [ListingController::class, 'show']);
+        Route::put('/listings/{id}', [ListingController::class, 'update']);
+        Route::delete('/listings/{id}', [ListingController::class, 'destroy']);
+    });
 
     // Bookings
     Route::get('/bookings', [BookingController::class, 'index']);
@@ -83,4 +78,17 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/conversations', [MessageController::class, 'startConversation']);
     Route::get('/conversations/{conversation}/messages', [MessageController::class, 'messages']);
     Route::post('/conversations/{conversation}/messages', [MessageController::class, 'send']);
+
+    // Email verification routes
+    Route::get('/email/verify/{id}/{hash}', function (EmailVerificationRequest $request) {
+        $request->fulfill();
+        return response()->json(['message' => 'Email verified']);
+    })->name('verification.verify');
+
+    Route::post('/email/verification-notify', function (Request $request) {
+        $request->user()->sendEmailVerificationNotification();
+        return response()->json(['message' => 'Verification email sent!']);
+    })->name('verification.send');
+
+
 });

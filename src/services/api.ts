@@ -95,33 +95,67 @@ class ApiClient {
     })
   }
 
-  // File upload
+  // File upload helper for FormData
+  async uploadFormData<T>(endpoint: string, formData: FormData, method: 'POST' | 'PUT' = 'POST'): Promise<ApiResponse<T>> {
+    const url = `${this.baseURL}${endpoint}`
+    const token = localStorage.getItem('auth_token')
+
+    const headers: HeadersInit = {
+      'Accept': 'application/json',
+      ...(token && { Authorization: `Bearer ${token}` }),
+    }
+
+    // For PUT requests via form data, use method override
+    if (method === 'PUT') {
+      formData.append('_method', 'PUT')
+    }
+
+    try {
+      console.log('Uploading FormData to:', url)
+      console.log('FormData contents:')
+      for (let [key, value] of formData.entries()) {
+        console.log(key, value)
+      }
+
+      const response = await fetch(url, {
+        method: method === 'PUT' ? 'POST' : method, // Laravel method override
+        headers,
+        body: formData,
+      })
+
+      let data
+      const contentType = response.headers.get('content-type')
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json()
+      } else {
+        data = { message: await response.text() }
+      }
+
+      console.log('Upload response:', { status: response.status, data })
+
+      if (!response.ok) {
+        throw new Error(data.message || `Upload failed with status: ${response.status}`)
+      }
+
+      return data
+    } catch (error) {
+      console.error('Upload error:', error)
+      throw error
+    }
+  }
+
+  // File upload helper for a single file + data
   async uploadFile<T>(endpoint: string, file: File, additionalData?: Record<string, any>): Promise<ApiResponse<T>> {
     const formData = new FormData()
     formData.append('file', file)
-    
+  
     if (additionalData) {
       Object.entries(additionalData).forEach(([key, value]) => {
         formData.append(key, String(value))
       })
     }
 
-    const token = localStorage.getItem('auth_token')
-    const response = await fetch(`${this.baseURL}${endpoint}`, {
-      method: 'POST',
-      headers: {
-        ...(token && { Authorization: `Bearer ${token}` }),
-      },
-      body: formData,
-    })
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      throw new Error(data.message || 'Upload failed')
-    }
-
-    return data
+    return this.uploadFormData<T>(endpoint, formData)
   }
 }
 
@@ -213,6 +247,7 @@ export class UserService {
 }
 
 export class ListingService {
+  // Public listings (for browsing)
   static async getListings(params?: {
     page?: number
     limit?: number
@@ -229,6 +264,7 @@ export class ListingService {
     instant_book?: boolean
     sort_by?: string
     sort_order?: 'asc' | 'desc'
+    search?: string
   }) {
     return apiClient.get('/listings', params)
   }
@@ -237,33 +273,58 @@ export class ListingService {
     return apiClient.get(`/listings/${id}`)
   }
 
+  // Host listing management
+  static async getHostListings(params?: { status?: 'active' | 'paused' }) {
+    return apiClient.get('/host/listings', params)
+  }
+
+  static async getHostListing(id: string) {
+    return apiClient.get(`/host/listings/${id}`)
+  }
+
+  // Create listing with files
+  static async createListingWithFiles(formData: FormData) {
+    console.log('Creating listing with files...')
+    return apiClient.uploadFormData('/host/listings', formData, 'POST')
+  }
+
+  // Update listing with files
+  static async updateListingWithFiles(id: string, formData: FormData) {
+    console.log(`Updating listing ${id} with files...`)
+    return apiClient.uploadFormData(`/host/listings/${id}`, formData, 'PUT')
+  }
+
+  // Create listing (JSON only)
   static async createListing(data: any) {
-    return apiClient.post('/listings', data)
+    return apiClient.post('/host/listings', data)
   }
 
+  // Update listing (JSON only)
   static async updateListing(id: string, data: any) {
-    return apiClient.put(`/listings/${id}`, data)
+    return apiClient.put(`/host/listings/${id}`, data)
   }
 
+  // Delete listing
   static async deleteListing(id: string) {
-    return apiClient.delete(`/listings/${id}`)
+    return apiClient.delete(`/host/listings/${id}`)
   }
 
+  // Legacy methods (keep for backward compatibility)
   static async getUserListings(userId?: string) {
-    const endpoint = userId ? `/users/${userId}/listings` : '/user/listings'
+    const endpoint = userId ? `/users/${userId}/listings` : '/host/listings'
     return apiClient.get(endpoint)
   }
 
   static async uploadListingImages(id: string, files: File[]) {
     const formData = new FormData()
     files.forEach((file, index) => {
-      formData.append(`images[${index}]`, file)
+      formData.append(`images[]`, file)
     })
-    return apiClient.uploadFile(`/listings/${id}/images`, files[0], { images: files })
+    return apiClient.uploadFormData(`/host/listings/${id}/images`, formData)
   }
 
   static async deleteListingImage(id: string, imageId: string) {
-    return apiClient.delete(`/listings/${id}/images/${imageId}`)
+    return apiClient.delete(`/host/listings/${id}/images/${imageId}`)
   }
 
   static async getListingAvailability(id: string, startDate?: string, endDate?: string) {

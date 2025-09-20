@@ -14,39 +14,43 @@ import { NotFoundPage } from '@/pages/NotFoundPage'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { GuestRoute } from '@/components/routes/GuestRoute'
 import { HostRoute } from '@/components/routes/HostRoute'
+import { ToastProvider } from '@/components/ui/use-toast'  
+
 
 function App() {
   return (
     <ErrorBoundary>
-      <Layout>
-        <Routes>
-          <Route path="/" element={<LandingPage />} />
-          <Route path="/search" element={<SearchPage />} />
-          <Route path="/listing/:id" element={<ListingDetailPage />} />
-          <Route path="/booking/:id" element={<BookingPage />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route
-            path="/dashboard"
-            element={
-              <GuestRoute>
-                <UserDashboard />
-              </GuestRoute>
-            }
-          />
-          <Route
-            path="/host/dashboard"
-            element={
-              <HostRoute>
-                <HostDashboard />
-              </HostRoute>
-            }
-          />
-          <Route path="/messages" element={<MessagesPage />} />
-          <Route path="/reviews" element={<ReviewsPage />} />
-          <Route path="*" element={<NotFoundPage />} />
-        </Routes>
-      </Layout>
+      <ToastProvider>
+        <Layout>
+          <Routes>
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/search" element={<SearchPage />} />
+            <Route path="/listing/:id" element={<ListingDetailPage />} />
+            <Route path="/booking/:id" element={<BookingPage />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route
+              path="/dashboard"
+              element={
+                <GuestRoute>
+                  <UserDashboard />
+                </GuestRoute>
+              }
+            />
+            <Route
+              path="/host/dashboard"
+              element={
+                <HostRoute>
+                  <HostDashboard />
+                </HostRoute>
+              }
+            />
+            <Route path="/messages" element={<MessagesPage />} />
+            <Route path="/reviews" element={<ReviewsPage />} />
+            <Route path="*" element={<NotFoundPage />} />
+          </Routes>
+        </Layout>
+      </ToastProvider>
     </ErrorBoundary>
   )
 }
