@@ -11,33 +11,51 @@ use Illuminate\Validation\Rule;
 class ListingController extends Controller
 {
     // Public method for browsing listings
-    public function publicIndex(Request $request)
-    {
-        $query = Listing::where('status', 'active');
+   // Update the publicIndex method
+public function publicIndex(Request $request)
+{
+    $query = Listing::where('status', 'active');
 
-        if ($request->filled('type') && in_array($request->type, ['car', 'home'], true)) {
-            $query->where('type', $request->type);
-        }
-
-        if ($request->filled('search')) {
-            $query->where(function ($q) use ($request) {
-                $q->where('title', 'like', '%' . $request->search . '%')
-                  ->orWhere('description', 'like', '%' . $request->search . '%')
-                  ->orWhere('location', 'like', '%' . $request->search . '%');
-            });
-        }
-
-        $listings = $query->with('images', 'user')->paginate(12);
-
-        return response()->json($listings);
+    if ($request->filled('type') && in_array($request->type, ['car', 'home'], true)) {
+        $query->where('type', $request->type);
     }
 
-    // Public method for showing a single listing
-    public function publicShow($id)
-    {
-        $listing = Listing::with('images', 'user')->where('status', 'active')->findOrFail($id);
-        return response()->json($listing);
+    if ($request->filled('search')) {
+        $query->where(function ($q) use ($request) {
+            $q->where('title', 'like', '%' . $request->search . '%')
+              ->orWhere('description', 'like', '%' . $request->search . '%')
+              ->orWhere('location', 'like', '%' . $request->search . '%');
+        });
     }
+
+    // Add price filtering
+    if ($request->filled('price_min')) {
+        $query->where('price_per_day', '>=', $request->price_min);
+    }
+
+    if ($request->filled('price_max')) {
+        $query->where('price_per_day', '<=', $request->price_max);
+    }
+
+    // Add sorting
+    $sortBy = $request->get('sort_by', 'created_at');
+    $sortOrder = $request->get('sort_order', 'desc');
+    
+    if (in_array($sortBy, ['created_at', 'price_per_day', 'title'])) {
+        $query->orderBy($sortBy, $sortOrder);
+    }
+
+    $listings = $query->with('images', 'host')->paginate(12); // Changed from 'user' to 'host'
+
+    return response()->json($listings);
+}
+
+// Update the publicShow method
+public function publicShow($id)
+{
+    $listing = Listing::with('images', 'host')->where('status', 'active')->findOrFail($id); // Changed from 'user' to 'host'
+    return response()->json($listing);
+}
 
     // List the logged-in host's listings
     public function index(Request $request)

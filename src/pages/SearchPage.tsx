@@ -6,8 +6,7 @@ import { LoadingSpinner } from '@/components/ui/LoadingSpinner'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { SearchFilters as SearchFiltersType, Listing, SearchResult } from '@/types'
-// import { mockListings } from '@/data/mockData'
-import { api } from '@/services/api'
+import { api } from '@/services/api' // Use the correct import from your API service
 import { 
   Grid, 
   List, 
@@ -18,15 +17,53 @@ import {
   X
 } from 'lucide-react'
 
+// Define the Laravel API response structure
+interface LaravelListing {
+  id: number
+  title: string
+  description: string | null
+  type: 'car' | 'home'
+  price_per_day: number
+  location: string
+  status: 'active' | 'paused'
+  images: Array<{
+    id: number
+    image_path: string
+    position: number
+  }>
+  host: {
+    id: number
+    name: string
+    email: string
+  }
+  created_at: string
+  updated_at: string
+}
+
+interface LaravelPaginatedResponse {
+  data: LaravelListing[]
+  current_page: number
+  last_page: number
+  per_page: number
+  total: number
+  from: number
+  to: number
+}
+
 export const SearchPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams()
   const [filters, setFilters] = useState<SearchFiltersType>({})
   const [listings, setListings] = useState<Listing[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
-  const [sortBy, setSortBy] = useState<string>('relevance')
+  const [sortBy, setSortBy] = useState<string>('created_at')
   const [showFilters, setShowFilters] = useState(false)
   const [favorites, setFavorites] = useState<Set<string>>(new Set())
+  const [pagination, setPagination] = useState<{
+    currentPage: number
+    totalPages: number
+    total: number
+  } | null>(null)
 
   // Initialize filters from URL params
   useEffect(() => {
@@ -36,10 +73,12 @@ export const SearchPage: React.FC = () => {
     const endDate = searchParams.get('endDate') || undefined
     const minPrice = searchParams.get('minPrice')
     const maxPrice = searchParams.get('maxPrice')
+    const search = searchParams.get('search') || undefined
 
     const initialFilters: SearchFiltersType = {
       type,
       location,
+      search, // Add search term support
       dateRange: startDate && endDate ? { start: startDate, end: endDate } : undefined,
       priceRange: minPrice || maxPrice ? {
         min: minPrice ? Number(minPrice) : undefined,
@@ -50,64 +89,117 @@ export const SearchPage: React.FC = () => {
     setFilters(initialFilters)
   }, [searchParams])
 
+  // Get API base URL for images
+  const getImageUrl = (imagePath: string) => {
+    const apiUrl = 'http://localhost:8000' // Your Laravel backend URL
+    return `${apiUrl}/storage/${imagePath}`
+  }
+
+  // Convert Laravel listing to your Listing type
+  const convertLaravelListing = (laravelListing: LaravelListing): Listing => {
+    return {
+      id: String(laravelListing.id),
+      title: laravelListing.title,
+      description: laravelListing.description || '',
+      type: laravelListing.type,
+      category: laravelListing.type, // Use type as category
+      price: laravelListing.price_per_day,
+      currency: 'USD',
+      images: laravelListing.images.map(img => getImageUrl(img.image_path)),
+      location: {
+        address: laravelListing.location,
+        city: laravelListing.location.split(',')[0] || laravelListing.location,
+        state: laravelListing.location.split(',')[1]?.trim() || '',
+        country: 'US', // Default
+        zipCode: '',
+        coordinates: { lat: 0, lng: 0 }, // You might want to add coordinates to your Laravel model
+      },
+      host: {
+        id: String(laravelListing.host.id),
+        name: laravelListing.host.name,
+        email: laravelListing.host.email,
+        isVerified: true,
+        joinedAt: laravelListing.created_at,
+        rating: 4.5, // Default rating - you can add this to your Laravel model
+        reviewCount: 0, // Default - you can calculate this from reviews
+        isHost: true,
+        preferences: {
+          notifications: { email: true, sms: false, push: true },
+          privacy: { showProfile: true, showBookings: false },
+          currency: 'USD',
+          language: 'en'
+        },
+      },
+      amenities: [], // You might want to add amenities to your Laravel model
+      features: {}, // You might want to add features to your Laravel model
+      availability: {
+        startDate: '',
+        endDate: '',
+        blockedDates: [],
+        minimumStay: 1,
+        advanceNotice: 0
+      },
+      rating: 4.5, // Default - calculate from reviews
+      reviewCount: 0, // Default - calculate from reviews
+      isAvailable: laravelListing.status === 'active',
+      isVerified: true,
+      createdAt: laravelListing.created_at,
+      updatedAt: laravelListing.updated_at,
+    }
+  }
+
   // Search function
-  const performSearch = async () => {
+  const performSearch = async (page = 1) => {
     setIsLoading(true)
     try {
-      const params: any = {}
-      if (filters.type) params.type = filters.type
-      if (filters.location) params.location = filters.location
-      if (filters.priceRange?.min || filters.priceRange?.max) {
-        params['price[min]'] = filters.priceRange?.min
-        params['price[max]'] = filters.priceRange?.max
+      const params: any = {
+        page,
+        search: filters.search,
+        type: filters.type,
+        sort_by: sortBy === 'relevance' ? 'created_at' : sortBy,
+        sort_order: sortBy === 'price-low' ? 'asc' : 'desc'
       }
 
-      const res = await api.listings.getListings(params)
-      const items = (res as any).data?.data || (res as any).data || []
+      // Handle price range
+      if (filters.priceRange?.min) {
+        params.price_min = filters.priceRange.min
+      }
+      if (filters.priceRange?.max) {
+        params.price_max = filters.priceRange.max
+      }
 
-      // Map API to Listing type shape we use
-      const mapped: Listing[] = items.map((it: any) => ({
-        id: String(it.id),
-        title: it.title,
-        description: it.description || '',
-        type: it.type,
-        category: '',
-        price: it.price_per_day,
-        currency: 'USD',
-        images: (it.images || []).map((img: any) => img.image_path),
-        location: {
-          address: it.location,
-          city: it.location,
-          state: '',
-          country: '',
-          zipCode: '',
-          coordinates: { lat: 0, lng: 0 },
-        },
-        host: {
-          id: String(it.host?.id || ''),
-          name: it.host?.name || 'Host',
-          email: it.host?.email || '',
-          isVerified: true,
-          joinedAt: '',
-          rating: 0,
-          reviewCount: 0,
-          isHost: true,
-          preferences: { notifications: { email: true, sms: false, push: true }, privacy: { showProfile: true, showBookings: false }, currency: 'USD', language: 'en' },
-        },
-        amenities: [],
-        features: {},
-        availability: { startDate: '', endDate: '', blockedDates: [], minimumStay: 1, advanceNotice: 0 },
-        rating: 0,
-        reviewCount: 0,
-        isAvailable: it.status === 'active',
-        isVerified: true,
-        createdAt: it.created_at,
-        updatedAt: it.created_at,
-      }))
+      // Handle location search - you might want to implement location filtering in your Laravel API
+      if (filters.location) {
+        if (!params.search) {
+          params.search = filters.location
+        } else {
+          params.search += ` ${filters.location}`
+        }
+      }
 
-      setListings(mapped)
-    } catch (e) {
+      console.log('Search params:', params)
+
+      const response = await api.listings.getListings(params) as LaravelPaginatedResponse
+
+      console.log('API response:', response)
+
+      if (response && response.data) {
+        const convertedListings = response.data.map(convertLaravelListing)
+        setListings(convertedListings)
+        
+        setPagination({
+          currentPage: response.current_page,
+          totalPages: response.last_page,
+          total: response.total
+        })
+      } else {
+        setListings([])
+        setPagination(null)
+      }
+    } catch (error) {
+      console.error('Search error:', error)
       setListings([])
+      setPagination(null)
     } finally {
       setIsLoading(false)
     }
@@ -115,7 +207,7 @@ export const SearchPage: React.FC = () => {
 
   // Perform search when filters change
   useEffect(() => {
-    performSearch()
+    performSearch(1)
   }, [filters, sortBy])
 
   const handleFiltersChange = (newFilters: SearchFiltersType) => {
@@ -125,6 +217,7 @@ export const SearchPage: React.FC = () => {
     const params = new URLSearchParams()
     if (newFilters.type) params.set('type', newFilters.type)
     if (newFilters.location) params.set('location', newFilters.location)
+    if (newFilters.search) params.set('search', newFilters.search)
     if (newFilters.dateRange?.start) params.set('startDate', newFilters.dateRange.start)
     if (newFilters.dateRange?.end) params.set('endDate', newFilters.dateRange.end)
     if (newFilters.priceRange?.min) params.set('minPrice', newFilters.priceRange.min.toString())
@@ -156,12 +249,17 @@ export const SearchPage: React.FC = () => {
     }
   }
 
+  const handleLoadMore = () => {
+    if (pagination && pagination.currentPage < pagination.totalPages) {
+      performSearch(pagination.currentPage + 1)
+    }
+  }
+
   const sortOptions = [
-    { value: 'relevance', label: 'Relevance' },
+    { value: 'created_at', label: 'Newest First' },
     { value: 'price-low', label: 'Price: Low to High' },
     { value: 'price-high', label: 'Price: High to Low' },
-    { value: 'rating', label: 'Highest Rated' },
-    { value: 'newest', label: 'Newest First' }
+    { value: 'title', label: 'Title A-Z' },
   ]
 
   return (
@@ -174,8 +272,8 @@ export const SearchPage: React.FC = () => {
               <SearchFilters
                 filters={filters}
                 onFiltersChange={handleFiltersChange}
-                onSearch={performSearch}
-                resultCount={listings.length}
+                onSearch={() => performSearch(1)}
+                resultCount={pagination?.total || 0}
               />
             </div>
           </div>
@@ -191,7 +289,7 @@ export const SearchPage: React.FC = () => {
                     {filters.location && ` in ${filters.location}`}
                   </h1>
                   <p className="text-secondary-600">
-                    {listings.length} results found
+                    {pagination?.total || 0} results found
                   </p>
                 </div>
 
@@ -240,7 +338,7 @@ export const SearchPage: React.FC = () => {
                 </div>
 
                 <div className="text-sm text-secondary-600">
-                  Showing {listings.length} of {listings.length} results
+                  Showing {listings.length} of {pagination?.total || 0} results
                 </div>
               </div>
             </div>
@@ -266,10 +364,10 @@ export const SearchPage: React.FC = () => {
                       filters={filters}
                       onFiltersChange={handleFiltersChange}
                       onSearch={() => {
-                        performSearch()
+                        performSearch(1)
                         setShowFilters(false)
                       }}
-                      resultCount={listings.length}
+                      resultCount={pagination?.total || 0}
                     />
                   </div>
                 </div>
@@ -317,10 +415,15 @@ export const SearchPage: React.FC = () => {
             )}
 
             {/* Load More Button */}
-            {listings.length > 0 && (
+            {pagination && pagination.currentPage < pagination.totalPages && (
               <div className="text-center mt-12">
-                <Button variant="outline" size="lg">
-                  Load More Results
+                <Button 
+                  variant="outline" 
+                  size="lg"
+                  onClick={handleLoadMore}
+                  disabled={isLoading}
+                >
+                  {isLoading ? 'Loading...' : 'Load More Results'}
                 </Button>
               </div>
             )}
