@@ -337,43 +337,65 @@ export class ListingService {
 }
 
 export class BookingService {
+  // Check availability
+  static async checkAvailability(listingId: string, startDate: string, endDate: string) {
+    return apiClient.get(`/listings/${listingId}/availability`, { 
+      start_date: startDate, 
+      end_date: endDate 
+    })
+  }
+
+  // Get user's bookings
   static async getBookings(params?: {
     page?: number
     limit?: number
     status?: string
-    type?: 'guest' | 'host'
   }) {
     return apiClient.get('/bookings', params)
   }
 
+  // Get specific booking
   static async getBooking(id: string) {
     return apiClient.get(`/bookings/${id}`)
   }
 
+  // Create new booking
   static async createBooking(data: {
-    listing_id: string
+    listing_id: string | number
     start_date: string
     end_date: string
     guests: number
-    special_requests?: string
   }) {
     return apiClient.post('/bookings', data)
   }
 
+  // Cancel booking
+  static async cancelBooking(id: string) {
+    return apiClient.put(`/bookings/${id}/cancel`)
+  }
+
+  // Host methods
+  static async getHostBookings(params?: {
+    page?: number
+    limit?: number
+    status?: string
+  }) {
+    return apiClient.get('/host/bookings', params)
+  }
+
+  // Confirm booking (host only)
+  static async confirmBooking(id: string) {
+    return apiClient.put(`/host/bookings/${id}/confirm`)
+  }
+
+  // Decline booking (host only)
+  static async declineBooking(id: string) {
+    return apiClient.put(`/host/bookings/${id}/decline`)
+  }
+
+  // Legacy methods for backward compatibility
   static async updateBooking(id: string, data: any) {
     return apiClient.put(`/bookings/${id}`, data)
-  }
-
-  static async cancelBooking(id: string, reason?: string) {
-    return apiClient.post(`/bookings/${id}/cancel`, { reason })
-  }
-
-  static async confirmBooking(id: string) {
-    return apiClient.post(`/bookings/${id}/confirm`)
-  }
-
-  static async declineBooking(id: string, reason?: string) {
-    return apiClient.post(`/bookings/${id}/decline`, { reason })
   }
 
   static async getBookingCalendar(listingId: string, year: number, month: number) {

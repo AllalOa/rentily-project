@@ -3,6 +3,7 @@ import { ListingForm } from './ListingForm'
 import { ConfirmDialog } from '@/components/ConfirmDialog' 
 import { useHostListings, HostListing } from '@/hooks/useHostListings'
 import { ListingDetailModal } from '@/components/ListingDetailModal'
+import { HostBookingsSection } from './HostBookingsSection' // Import the new component
 import { 
   Calendar, 
   MapPin, 
@@ -31,8 +32,8 @@ import { Button } from '@/components/ui/Button'
 import { Badge } from '@/components/ui/Badge'
 import { Input } from '@/components/ui/Input'
 import { StarRating } from '@/components/ui/StarRating'
-import { mockBookings, mockDashboardStats } from '@/data/mockData'
-import { Booking, DashboardStats } from '@/types'
+import { mockDashboardStats } from '@/data/mockData' // Keep only dashboard stats
+import { DashboardStats } from '@/types'
 import { formatPrice, formatDate, formatDateTime } from '@/lib/utils'
 import Swal from 'sweetalert2'
 
@@ -40,6 +41,7 @@ export const HostDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'overview' | 'listings' | 'bookings' | 'analytics'>('overview')
   const [searchQuery, setSearchQuery] = useState('')
   const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'paused'>('all')
+  const [bookingFilter, setBookingFilter] = useState<'all' | 'pending' | 'confirmed' | 'completed'>('all')
 
   // Listing modal states
   const [showCreateModal, setShowCreateModal] = useState(false)
@@ -62,7 +64,6 @@ export const HostDashboard: React.FC = () => {
   } = useHostListings(filterStatus === 'all' ? undefined : filterStatus)
 
   const stats: DashboardStats = mockDashboardStats
-  const myBookings = mockBookings.filter(booking => booking.hostId === '1')
 
   // Filter listings based on search query
   const filteredListings = listings.filter(listing => 
@@ -106,7 +107,7 @@ export const HostDashboard: React.FC = () => {
 
   const handleCreateSuccess = async () => {
     closeCreateModal()
-    await refetch() // Refresh listings
+    await refetch()
     Swal.fire({
       icon: 'success',
       title: 'Success!',
@@ -118,7 +119,7 @@ export const HostDashboard: React.FC = () => {
 
   const handleEditSuccess = async () => {
     closeEditModal()
-    await refetch() // Refresh listings
+    await refetch()
     Swal.fire({
       icon: 'success',
       title: 'Success!',
@@ -166,7 +167,6 @@ export const HostDashboard: React.FC = () => {
   }
 
   const getImageUrl = (imagePath: string) => {
-    // Use import.meta.env for Vite or hardcode the API URL
     const apiUrl = import.meta.env?.VITE_API_URL || 'http://localhost:8000'
     return `${apiUrl}/storage/${imagePath}`
   }
@@ -228,7 +228,7 @@ export const HostDashboard: React.FC = () => {
         </Card>
       </div>
 
-      {/* Recent Bookings */}
+      {/* Recent Bookings Preview */}
       <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-secondary-900">Recent Bookings</h3>
@@ -236,33 +236,8 @@ export const HostDashboard: React.FC = () => {
             View All
           </Button>
         </div>
-        <div className="space-y-4">
-          {myBookings.slice(0, 3).map((booking) => (
-            <div key={booking.id} className="flex items-center justify-between p-4 bg-secondary-50 rounded-lg">
-              <div className="flex items-center space-x-4">
-                <img
-                  src={booking.listing.images[0]}
-                  alt={booking.listing.title}
-                  className="w-12 h-12 rounded-lg object-cover"
-                />
-                <div>
-                  <h4 className="font-medium text-secondary-900">{booking.listing.title}</h4>
-                  <p className="text-sm text-secondary-600">
-                    {formatDate(booking.startDate)} - {formatDate(booking.endDate)}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center space-x-4">
-                <div className="text-right">
-                  <p className="font-semibold text-secondary-900">
-                    {formatPrice(booking.totalPrice, booking.currency)}
-                  </p>
-                  {getStatusBadge(booking.status)}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+        {/* Use a simplified version of the bookings component for overview */}
+        <HostBookingsSection filterStatus="pending" isPreview={true} limit={3} />
       </Card>
     </div>
   )
@@ -338,7 +313,7 @@ export const HostDashboard: React.FC = () => {
                         className="w-full h-full object-cover"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement
-                          target.src = '/placeholder-image.png' // Fallback image
+                          target.src = '/placeholder-image.png'
                         }}
                       />
                     ) : (
@@ -427,83 +402,7 @@ export const HostDashboard: React.FC = () => {
     )
   }
 
-  const renderBookings = () => {
-    if (myBookings.length === 0) {
-      return (
-        <div className="text-center py-12">
-          <Calendar className="h-12 w-12 text-secondary-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-secondary-900 mb-2">
-            No bookings yet
-          </h3>
-          <p className="text-secondary-600 mb-6">
-            Bookings will appear here once guests start booking your listings.
-          </p>
-        </div>
-      )
-    }
-
-    return (
-      <div className="space-y-4">
-        {myBookings.map((booking) => (
-          <Card key={booking.id} className="p-6 hover:shadow-md transition-shadow duration-200">
-            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-              <div className="flex space-x-4">
-                <img
-                  src={booking.listing.images[0]}
-                  alt={booking.listing.title}
-                  className="w-20 h-20 rounded-lg object-cover flex-shrink-0"
-                />
-                <div className="flex-1">
-                  <div className="flex items-start justify-between mb-2">
-                    <h3 className="text-lg font-semibold text-secondary-900">
-                      {booking.listing.title}
-                    </h3>
-                    <div className="flex items-center space-x-2">
-                      {getStatusBadge(booking.status)}
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center space-x-4 text-sm text-secondary-600 mb-2">
-                    <div className="flex items-center space-x-1">
-                      <Users className="h-4 w-4" />
-                      <span>{booking.guest.name}</span>
-                    </div>
-                    <div className="flex items-center space-x-1">
-                      <Calendar className="h-4 w-4" />
-                      <span>
-                        {formatDate(booking.startDate)} - {formatDate(booking.endDate)}
-                      </span>
-                    </div>
-                  </div>
-                  
-                  <div className="text-lg font-semibold text-primary-600">
-                    {formatPrice(booking.totalPrice, booking.currency)}
-                  </div>
-                </div>
-              </div>
-              
-              <div className="flex flex-col sm:flex-row gap-2">
-                <Button variant="outline" size="sm">
-                  <MessageCircle className="h-4 w-4 mr-2" />
-                  Message Guest
-                </Button>
-                {booking.status === 'pending' && (
-                  <>
-                    <Button size="sm" className="bg-success-600 hover:bg-success-700">
-                      Accept
-                    </Button>
-                    <Button variant="outline" size="sm" className="text-error-600 hover:text-error-700">
-                      Decline
-                    </Button>
-                  </>
-                )}
-              </div>
-            </div>
-          </Card>
-        ))}
-      </div>
-    )
-  }
+  const renderBookings = () => <HostBookingsSection filterStatus={bookingFilter} />
 
   const renderAnalytics = () => (
     <div className="space-y-8">
@@ -668,15 +567,29 @@ export const HostDashboard: React.FC = () => {
             </div>
           </div>
           <div className="flex space-x-2">
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as 'all' | 'active' | 'paused')}
-              className="px-3 py-2 border border-secondary-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
-            >
-              <option value="all">All Status</option>
-              <option value="active">Active</option>
-              <option value="paused">Paused</option>
-            </select>
+            {activeTab === 'listings' && (
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value as 'all' | 'active' | 'paused')}
+                className="px-3 py-2 border border-secondary-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="all">All Status</option>
+                <option value="active">Active</option>
+                <option value="paused">Paused</option>
+              </select>
+            )}
+            {activeTab === 'bookings' && (
+              <select
+                value={bookingFilter}
+                onChange={(e) => setBookingFilter(e.target.value as 'all' | 'pending' | 'confirmed' | 'completed')}
+                className="px-3 py-2 border border-secondary-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
+              >
+                <option value="all">All Bookings</option>
+                <option value="pending">Pending</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="completed">Completed</option>
+              </select>
+            )}
             <Button variant="outline" size="sm">
               <Filter className="h-4 w-4 mr-2" />
               Filter
@@ -690,7 +603,7 @@ export const HostDashboard: React.FC = () => {
             {[
               { id: 'overview', label: 'Overview' },
               { id: 'listings', label: 'Listings', count: listings.length },
-              { id: 'bookings', label: 'Bookings', count: myBookings.length },
+              { id: 'bookings', label: 'Bookings' },
               { id: 'analytics', label: 'Analytics' }
             ].map((tab) => (
               <button

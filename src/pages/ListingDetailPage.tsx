@@ -1,166 +1,375 @@
 import React, { useState, useEffect } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import { 
   ArrowLeft,
   Heart,
   Share2,
   MapPin,
-  Star,
-  User,
-  Shield,
   Calendar,
-  Users,
+  Star,
+  Shield,
   Car,
   Home,
-  Wifi,
-  Coffee,
-  Tv,
-  AirVent,
-  ParkingCircle,
+  User,
   MessageCircle,
   ChevronLeft,
   ChevronRight,
-  Check,
-  X,
   Clock,
-  Award,
-  Camera,
-  ZoomIn
+  CheckCircle,
+  Wifi,
+  Coffee,
+  Tv,
+  Car as CarIcon,
+  ParkingCircle,
+  AirVent,
+  AlertCircle,
+  Loader2
 } from 'lucide-react'
-import { Button } from '@/components/ui/Button'
-import { Card } from '@/components/ui/Card'
-import { Badge } from '@/components/ui/Badge'
-import { Input } from '@/components/ui/Input'
-import { StarRating } from '@/components/ui/StarRating'
-import { api } from '@/services/api'
 
-interface ListingDetail {
-  id: number
-  title: string
-  description: string
-  type: 'car' | 'home'
-  price_per_day: number
-  location: string
-  status: string
-  images: Array<{
-    id: number
-    image_path: string
-    position: number
-  }>
-  host: {
-    id: number
-    name: string
-    email: string
+// Mock components (replace with your actual UI components)
+const Card = ({ children, className = "" }) => (
+  <div className={`bg-white rounded-lg shadow-sm border border-gray-200 ${className}`}>
+    {children}
+  </div>
+)
+
+const Button = ({ children, variant = "primary", size = "md", disabled = false, onClick, className = "" }) => {
+  const baseClasses = "inline-flex items-center justify-center font-medium rounded-lg transition-colors duration-200"
+  const variants = {
+    primary: "bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-300",
+    outline: "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50",
+    ghost: "text-gray-600 hover:bg-gray-100",
+    secondary: "bg-gray-100 text-gray-700 hover:bg-gray-200"
   }
-  created_at: string
-  updated_at: string
+  const sizes = {
+    sm: "px-3 py-1.5 text-sm",
+    md: "px-4 py-2 text-sm",
+    lg: "px-6 py-3 text-base"
+  }
+  
+  return (
+    <button
+      className={`${baseClasses} ${variants[variant]} ${sizes[size]} ${className}`}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  )
 }
 
-export const ListingDetailPage: React.FC = () => {
-  const [listing, setListing] = useState<ListingDetail | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+const Badge = ({ children, variant = "primary", size = "md" }) => {
+  const variants = {
+    primary: "bg-blue-100 text-blue-800",
+    success: "bg-green-100 text-green-800",
+    warning: "bg-yellow-100 text-yellow-800",
+    error: "bg-red-100 text-red-800",
+    secondary: "bg-gray-100 text-gray-800"
+  }
+  const sizes = {
+    sm: "px-2 py-1 text-xs",
+    md: "px-2.5 py-0.5 text-sm"
+  }
+  
+  return (
+    <span className={`inline-flex items-center font-medium rounded-full ${variants[variant]} ${sizes[size]}`}>
+      {children}
+    </span>
+  )
+}
+
+const Alert = ({ children, variant = "error", className = "" }) => {
+  const variants = {
+    error: "bg-red-50 border-red-200 text-red-800",
+    success: "bg-green-50 border-green-200 text-green-800",
+    warning: "bg-yellow-50 border-yellow-200 text-yellow-800",
+    info: "bg-blue-50 border-blue-200 text-blue-800"
+  }
+  
+  return (
+    <div className={`border rounded-lg p-4 ${variants[variant]} ${className}`}>
+      <div className="flex items-center">
+        <AlertCircle className="h-4 w-4 mr-2 flex-shrink-0" />
+        <div className="text-sm">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+const StarRating = ({ rating, size = "md", showValue = false }) => {
+  return (
+    <div className="flex items-center space-x-1">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <Star
+          key={star}
+          className={`${size === 'sm' ? 'h-3 w-3' : 'h-4 w-4'} ${
+            star <= rating ? 'text-yellow-400 fill-current' : 'text-gray-300'
+          }`}
+        />
+      ))}
+      {showValue && <span className="text-sm text-gray-600">({rating.toFixed(1)})</span>}
+    </div>
+  )
+}
+
+const formatPrice = (price, currency = 'USD') => {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: currency
+  }).format(price)
+}
+
+const formatDate = (date) => {
+  return new Date(date).toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  })
+}
+
+const getAuthToken = () => {
+  return localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token')
+}
+
+export const ListingDetailPage = () => {
+  const { id } = useParams()
+  const navigate = useNavigate()
+  const [listing, setListing] = useState(null)
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
-  const [showImageModal, setShowImageModal] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState(null)
   const [isFavorite, setIsFavorite] = useState(false)
-  const [checkIn, setCheckIn] = useState('')
-  const [checkOut, setCheckOut] = useState('')
+  const [selectedDates, setSelectedDates] = useState({ checkIn: '', checkOut: '' })
   const [guests, setGuests] = useState(1)
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'amenities' | 'location' | 'reviews'>('overview')
+  const [isBooking, setIsBooking] = useState(false)
+  const [bookingError, setBookingError] = useState('')
+  const [bookingSuccess, setBookingSuccess] = useState('')
+  const [availability, setAvailability] = useState(null)
+  const [checkingAvailability, setCheckingAvailability] = useState(false)
 
-  // Get listing ID from URL
-  const listingId = window.location.pathname.split('/').pop()
+  useEffect(() => {
+    fetchListing()
+  }, [id])
 
-  // Mock data for demonstration
-  const mockAmenities = [
-    { icon: <Wifi className="h-5 w-5" />, name: 'WiFi', available: true },
-    { icon: <Coffee className="h-5 w-5" />, name: 'Coffee Machine', available: true },
-    { icon: <Tv className="h-5 w-5" />, name: 'TV', available: true },
-    { icon: <AirVent className="h-5 w-5" />, name: 'Air Conditioning', available: true },
-    { icon: <ParkingCircle className="h-5 w-5" />, name: 'Parking', available: false },
-  ]
+  // Check availability when dates change with debouncing
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (selectedDates.checkIn && selectedDates.checkOut) {
+        checkAvailability()
+      }
+    }, 500) // Debounce for 500ms
 
-  const mockReviews = [
-    {
-      id: 1,
-      user: { name: 'John Doe', avatar: 'JD' },
-      rating: 5,
-      comment: 'Amazing rental! Everything was exactly as described. The host was very responsive.',
-      date: '2024-01-15'
-    },
-    {
-      id: 2,
-      user: { name: 'Sarah Smith', avatar: 'SS' },
-      rating: 4,
-      comment: 'Great experience overall. Clean and comfortable. Would book again.',
-      date: '2024-01-10'
+    return () => clearTimeout(timeoutId)
+  }, [selectedDates.checkIn, selectedDates.checkOut])
+
+  const fetchListing = async () => {
+    try {
+      setIsLoading(true)
+      setError(null)
+      
+      const apiUrl = import.meta.env?.VITE_API_URL || 'http://localhost:8000'
+      const response = await fetch(`${apiUrl}/api/listings/${id}`)
+      
+      if (!response.ok) {
+        throw new Error(`Failed to fetch listing: ${response.status} ${response.statusText}`)
+      }
+      
+      const data = await response.json()
+      setListing(data)
+    } catch (err) {
+      console.error('Error fetching listing:', err)
+      setError(err.message)
+    } finally {
+      setIsLoading(false)
     }
-  ]
+  }
 
-  // Get image URL
-  const getImageUrl = (imagePath: string) => {
-    const apiUrl = 'http://localhost:8000'
+  const checkAvailability = async () => {
+    if (!selectedDates.checkIn || !selectedDates.checkOut || !listing) {
+      return
+    }
+
+    // Validate dates
+    const checkIn = new Date(selectedDates.checkIn)
+    const checkOut = new Date(selectedDates.checkOut)
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+
+    if (checkIn < today) {
+      setBookingError('Check-in date cannot be in the past')
+      setAvailability(null)
+      return
+    }
+
+    if (checkOut <= checkIn) {
+      setBookingError('Check-out date must be after check-in date')
+      setAvailability(null)
+      return
+    }
+
+    try {
+      setCheckingAvailability(true)
+      setBookingError('')
+      setAvailability(null)
+      
+      const apiUrl = import.meta.env?.VITE_API_URL || 'http://localhost:8000'
+      
+      // Build the URL with query parameters
+      const url = new URL(`${apiUrl}/api/listings/${id}/availability`)
+      url.searchParams.append('start_date', selectedDates.checkIn)
+      url.searchParams.append('end_date', selectedDates.checkOut)
+      
+      console.log('Checking availability:', url.toString())
+      
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        }
+      })
+      
+      console.log('Availability response status:', response.status)
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Availability check failed:', response.status, errorText)
+        throw new Error(`Server error: ${response.status}`)
+      }
+      
+      const data = await response.json()
+      console.log('Availability data:', data)
+      
+      if (data.available) {
+        setAvailability(data)
+        setBookingError('')
+      } else {
+        setAvailability(null)
+        setBookingError(data.message || 'Selected dates are not available')
+      }
+    } catch (err) {
+      console.error('Error checking availability:', err)
+      setBookingError('Unable to check availability. Please try again.')
+      setAvailability(null)
+    } finally {
+      setCheckingAvailability(false)
+    }
+  }
+
+  const handleBooking = async () => {
+    const token = getAuthToken()
+    if (!token) {
+      setBookingError('Please log in to make a booking')
+      navigate('/login')
+      return
+    }
+
+    if (!selectedDates.checkIn || !selectedDates.checkOut) {
+      setBookingError('Please select check-in and check-out dates')
+      return
+    }
+
+    if (!availability || !availability.available) {
+      setBookingError('Please check availability first')
+      await checkAvailability()
+      return
+    }
+
+    try {
+      setIsBooking(true)
+      setBookingError('')
+      setBookingSuccess('')
+      
+      const apiUrl = import.meta.env?.VITE_API_URL || 'http://localhost:8000'
+      
+      const bookingData = {
+        listing_id: parseInt(id),
+        start_date: selectedDates.checkIn,
+        end_date: selectedDates.checkOut,
+        guests: guests
+      }
+
+      console.log('Sending booking data:', bookingData)
+
+      const response = await fetch(`${apiUrl}/api/bookings`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(bookingData)
+      })
+
+      const data = await response.json()
+      console.log('Booking response:', data)
+
+      if (response.ok && data.success) {
+        setBookingSuccess('Booking created successfully! Redirecting to your bookings...')
+        setTimeout(() => {
+          navigate('/bookings')
+        }, 2000)
+      } else {
+        setBookingError(data.message || 'Failed to create booking')
+      }
+    } catch (err) {
+      console.error('Booking error:', err)
+      setBookingError('Network error. Please try again.')
+    } finally {
+      setIsBooking(false)
+    }
+  }
+
+  const getImageUrl = (imagePath) => {
+    const apiUrl = import.meta.env?.VITE_API_URL || 'http://localhost:8000'
     return `${apiUrl}/storage/${imagePath}`
   }
 
-  // Fetch listing details
-  useEffect(() => {
-    const fetchListing = async () => {
-      if (!listingId) return
-
-      try {
-        setLoading(true)
-        const response = await api.listings.getListing(listingId)
-        setListing(response as ListingDetail)
-      } catch (err: any) {
-        setError(err.message || 'Failed to load listing')
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchListing()
-  }, [listingId])
-
-  // Image navigation
   const nextImage = () => {
-    if (listing && listing.images.length > 0) {
-      setCurrentImageIndex((prev) => 
-        prev === listing.images.length - 1 ? 0 : prev + 1
-      )
+    if (listing?.images?.length > 0) {
+      setCurrentImageIndex((prev) => (prev + 1) % listing.images.length)
     }
   }
 
   const prevImage = () => {
-    if (listing && listing.images.length > 0) {
-      setCurrentImageIndex((prev) => 
-        prev === 0 ? listing.images.length - 1 : prev - 1
-      )
+    if (listing?.images?.length > 0) {
+      setCurrentImageIndex((prev) => (prev - 1 + listing.images.length) % listing.images.length)
     }
   }
 
-  // Calculate total price
-  const calculateTotal = () => {
-    if (!checkIn || !checkOut) return 0
-    const start = new Date(checkIn)
-    const end = new Date(checkOut)
-    const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
-    return days > 0 ? days * (listing?.price_per_day || 0) : 0
+  const toggleFavorite = () => {
+    setIsFavorite(!isFavorite)
   }
 
-  const getDaysBetween = () => {
-    if (!checkIn || !checkOut) return 0
-    const start = new Date(checkIn)
-    const end = new Date(checkOut)
-    const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
-    return days > 0 ? days : 0
+  const handleShare = () => {
+    if (navigator.share) {
+      navigator.share({
+        title: listing?.title,
+        text: `Check out this ${listing?.type}: ${listing?.title}`,
+        url: window.location.href
+      })
+    } else {
+      navigator.clipboard.writeText(window.location.href)
+    }
   }
 
-  if (loading) {
+  // Calculate days difference
+  const calculateDays = () => {
+    if (!selectedDates.checkIn || !selectedDates.checkOut) return 0
+    const startDate = new Date(selectedDates.checkIn)
+    const endDate = new Date(selectedDates.checkOut)
+    const timeDiff = endDate.getTime() - startDate.getTime()
+    return Math.ceil(timeDiff / (1000 * 3600 * 24))
+  }
+
+  const days = calculateDays()
+
+  if (isLoading) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto"></div>
-          <p className="mt-4 text-secondary-600">Loading listing...</p>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading listing...</p>
         </div>
       </div>
     )
@@ -168,51 +377,57 @@ export const ListingDetailPage: React.FC = () => {
 
   if (error || !listing) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <X className="h-8 w-8 text-red-500" />
-          </div>
-          <h3 className="text-lg font-medium text-secondary-900 mb-2">
-            Listing not found
-          </h3>
-          <p className="text-secondary-600 mb-6">
-            {error || 'The listing you are looking for does not exist.'}
-          </p>
-          <Button onClick={() => window.history.back()}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Go Back
-          </Button>
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Listing not found</h1>
+          <p className="text-gray-600 mb-4">{error || 'This listing may have been removed or is no longer available.'}</p>
+          <Button onClick={() => navigate(-1)}>Go Back</Button>
         </div>
       </div>
     )
   }
 
+  const amenities = [
+    { icon: Wifi, label: 'WiFi' },
+    { icon: Coffee, label: 'Coffee' },
+    { icon: Tv, label: 'TV' },
+    { icon: ParkingCircle, label: 'Parking' },
+    { icon: AirVent, label: 'Air Conditioning' },
+  ]
+
+  const mockReviews = [
+    {
+      id: 1,
+      user: 'John D.',
+      rating: 5,
+      date: '2024-01-15',
+      comment: 'Amazing experience! The car was clean and well-maintained. Highly recommended!'
+    },
+    {
+      id: 2,
+      user: 'Sarah M.',
+      rating: 4,
+      date: '2024-01-10',
+      comment: 'Great location and easy pickup process. Will definitely book again.'
+    }
+  ]
+
   return (
-    <div className="min-h-screen bg-secondary-50">
-      {/* Header */}
-      <div className="bg-white border-b sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <Button 
-              variant="ghost" 
-              onClick={() => window.history.back()}
-              className="flex items-center space-x-2"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              <span>Back to Search</span>
+    <div className="min-h-screen bg-gray-50">
+      {/* Navigation */}
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <Button variant="ghost" onClick={() => navigate(-1)}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
             </Button>
-            
             <div className="flex items-center space-x-2">
-              <Button variant="ghost" size="sm">
+              <Button variant="ghost" onClick={handleShare}>
                 <Share2 className="h-4 w-4 mr-2" />
                 Share
               </Button>
-              <Button 
-                variant="ghost" 
-                size="sm"
-                onClick={() => setIsFavorite(!isFavorite)}
-              >
+              <Button variant="ghost" onClick={toggleFavorite}>
                 <Heart className={`h-4 w-4 mr-2 ${isFavorite ? 'fill-red-500 text-red-500' : ''}`} />
                 Save
               </Button>
@@ -222,383 +437,333 @@ export const ListingDetailPage: React.FC = () => {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Title and Basic Info */}
+        <div className="mb-6">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 mb-2">{listing.title}</h1>
+              <div className="flex items-center space-x-4 text-sm text-gray-600">
+                <div className="flex items-center space-x-1">
+                  <StarRating rating={4.8} size="sm" />
+                  <span>(24 reviews)</span>
+                </div>
+                <div className="flex items-center space-x-1">
+                  <MapPin className="h-4 w-4" />
+                  <span>{listing.location}</span>
+                </div>
+                <Badge variant={listing.type === 'car' ? 'primary' : 'secondary'}>
+                  {listing.type === 'car' ? (
+                    <><Car className="h-3 w-3 mr-1" />Car</>
+                  ) : (
+                    <><Home className="h-3 w-3 mr-1" />Home</>
+                  )}
+                </Badge>
+              </div>
+            </div>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Main Content */}
+          {/* Left Column - Images and Details */}
           <div className="lg:col-span-2 space-y-8">
             {/* Image Gallery */}
-            <Card className="overflow-hidden">
-              <div className="relative">
-                <div className="aspect-[16/10] bg-secondary-100">
-                  {listing.images.length > 0 ? (
+            <div className="relative">
+              {listing.images && listing.images.length > 0 ? (
+                <>
+                  <div className="relative h-96 rounded-lg overflow-hidden">
                     <img
-                      src={getImageUrl(listing.images[currentImageIndex].image_path)}
+                      src={getImageUrl(listing.images[currentImageIndex]?.image_path)}
                       alt={listing.title}
-                      className="w-full h-full object-cover cursor-pointer"
-                      onClick={() => setShowImageModal(true)}
+                      className="w-full h-full object-cover"
                       onError={(e) => {
-                        const target = e.target as HTMLImageElement
-                        target.src = listing.type === 'car' 
-                          ? 'https://images.unsplash.com/photo-1560958089-b8a1929cea89?w=800&h=500&fit=crop'
-                          : 'https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=800&h=500&fit=crop'
+                        e.target.src = '/placeholder-image.png'
                       }}
                     />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      {listing.type === 'car' ? (
-                        <Car className="h-24 w-24 text-secondary-400" />
-                      ) : (
-                        <Home className="h-24 w-24 text-secondary-400" />
-                      )}
+                    
+                    {listing.images.length > 1 && (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-white/80 hover:bg-white/90"
+                          onClick={prevImage}
+                        >
+                          <ChevronLeft className="h-5 w-5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-white/80 hover:bg-white/90"
+                          onClick={nextImage}
+                        >
+                          <ChevronRight className="h-5 w-5" />
+                        </Button>
+                      </>
+                    )}
+
+                    <div className="absolute bottom-4 right-4 bg-black/60 text-white px-3 py-1 rounded-full text-sm">
+                      {currentImageIndex + 1} / {listing.images.length}
+                    </div>
+                  </div>
+
+                  {/* Thumbnail Navigation */}
+                  {listing.images.length > 1 && (
+                    <div className="flex space-x-2 mt-4 overflow-x-auto pb-2">
+                      {listing.images.map((image, index) => (
+                        <button
+                          key={image.id}
+                          onClick={() => setCurrentImageIndex(index)}
+                          className={`flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition-all ${
+                            index === currentImageIndex 
+                              ? 'border-blue-500 ring-2 ring-blue-200' 
+                              : 'border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          <img
+                            src={getImageUrl(image.image_path)}
+                            alt={`Thumbnail ${index + 1}`}
+                            className="w-full h-full object-cover"
+                          />
+                        </button>
+                      ))}
                     </div>
                   )}
-                </div>
-                
-                {/* Navigation Arrows */}
-                {listing.images.length > 1 && (
-                  <>
-                    <button
-                      onClick={prevImage}
-                      className="absolute left-4 top-1/2 transform -translate-y-1/2 bg-white/80 hover:bg-white rounded-full p-2 shadow-lg transition-all"
-                    >
-                      <ChevronLeft className="h-5 w-5" />
-                    </button>
-                    <button
-                      onClick={nextImage}
-                      className="absolute right-4 top-1/2 transform -translate-y-1/2 bg-white/80 hover:bg-white rounded-full p-2 shadow-lg transition-all"
-                    >
-                      <ChevronRight className="h-5 w-5" />
-                    </button>
-                  </>
-                )}
-                
-                {/* Image Counter */}
-                <div className="absolute top-4 right-4 bg-black/50 text-white px-3 py-1 rounded-full text-sm">
-                  {currentImageIndex + 1} / {listing.images.length || 1}
-                </div>
-                
-                {/* View All Photos Button */}
-                <button
-                  onClick={() => setShowImageModal(true)}
-                  className="absolute bottom-4 right-4 bg-white hover:bg-secondary-50 px-4 py-2 rounded-lg text-sm font-medium shadow-lg transition-all flex items-center space-x-2"
-                >
-                  <Camera className="h-4 w-4" />
-                  <span>View all photos</span>
-                </button>
-              </div>
-              
-              {/* Thumbnail Strip */}
-              {listing.images.length > 1 && (
-                <div className="p-4 flex space-x-2 overflow-x-auto">
-                  {listing.images.map((image, index) => (
-                    <button
-                      key={image.id}
-                      onClick={() => setCurrentImageIndex(index)}
-                      className={`flex-shrink-0 w-20 h-16 rounded-lg overflow-hidden border-2 transition-all ${
-                        index === currentImageIndex 
-                          ? 'border-primary-500 ring-2 ring-primary-200' 
-                          : 'border-secondary-200 hover:border-secondary-300'
-                      }`}
-                    >
-                      <img
-                        src={getImageUrl(image.image_path)}
-                        alt={`View ${index + 1}`}
-                        className="w-full h-full object-cover"
-                      />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </Card>
-
-            {/* Title and Basic Info */}
-            <div className="space-y-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="flex items-center space-x-3 mb-2">
-                    <Badge variant={listing.type === 'car' ? 'primary' : 'secondary'}>
-                      {listing.type === 'car' ? 'Car Rental' : 'Home Rental'}
-                    </Badge>
-                    <Badge variant="success" className="flex items-center space-x-1">
-                      <Shield className="h-3 w-3" />
-                      <span>Verified</span>
-                    </Badge>
-                  </div>
-                  
-                  <h1 className="text-3xl font-bold text-secondary-900 mb-2">
-                    {listing.title}
-                  </h1>
-                  
-                  <div className="flex items-center space-x-4 text-secondary-600">
-                    <div className="flex items-center space-x-1">
-                      <MapPin className="h-4 w-4" />
-                      <span>{listing.location}</span>
-                    </div>
-                    <div className="flex items-center space-x-1">
-                      <Star className="h-4 w-4 text-amber-400 fill-current" />
-                      <span>4.8 (24 reviews)</span>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="text-right">
-                  <div className="text-3xl font-bold text-primary-600">
-                    ${listing.price_per_day}
-                  </div>
-                  <div className="text-sm text-secondary-500">per day</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Tabs */}
-            <div className="border-b border-secondary-200">
-              <nav className="flex space-x-8">
-                {[
-                  { id: 'overview', label: 'Overview' },
-                  { id: 'amenities', label: 'Features' },
-                  { id: 'location', label: 'Location' },
-                  { id: 'reviews', label: 'Reviews (24)' }
-                ].map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setSelectedTab(tab.id as any)}
-                    className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                      selectedTab === tab.id
-                        ? 'border-primary-500 text-primary-600'
-                        : 'border-transparent text-secondary-500 hover:text-secondary-700'
-                    }`}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </nav>
-            </div>
-
-            {/* Tab Content */}
-            <div className="space-y-6">
-              {selectedTab === 'overview' && (
-                <div className="space-y-6">
-                  <div>
-                    <h3 className="text-xl font-semibold text-secondary-900 mb-4">Description</h3>
-                    <p className="text-secondary-700 leading-relaxed">
-                      {listing.description || 'No description available for this listing.'}
-                    </p>
-                  </div>
-                  
-                  <div>
-                    <h3 className="text-xl font-semibold text-secondary-900 mb-4">What makes this special</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="flex items-center space-x-3 p-4 bg-green-50 rounded-lg">
-                        <Check className="h-5 w-5 text-green-600" />
-                        <span className="text-secondary-700">Verified by our team</span>
-                      </div>
-                      <div className="flex items-center space-x-3 p-4 bg-blue-50 rounded-lg">
-                        <Award className="h-5 w-5 text-blue-600" />
-                        <span className="text-secondary-700">Highly rated</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {selectedTab === 'amenities' && (
-                <div>
-                  <h3 className="text-xl font-semibold text-secondary-900 mb-6">Available Features</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    {mockAmenities.map((amenity, index) => (
-                      <div 
-                        key={index}
-                        className={`flex items-center space-x-3 p-4 rounded-lg border ${
-                          amenity.available 
-                            ? 'bg-green-50 border-green-200 text-green-700'
-                            : 'bg-red-50 border-red-200 text-red-700'
-                        }`}
-                      >
-                        {amenity.available ? (
-                          <Check className="h-5 w-5" />
-                        ) : (
-                          <X className="h-5 w-5" />
-                        )}
-                        {amenity.icon}
-                        <span className="font-medium">{amenity.name}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {selectedTab === 'location' && (
-                <div>
-                  <h3 className="text-xl font-semibold text-secondary-900 mb-4">Location</h3>
-                  <div className="aspect-[16/10] bg-secondary-100 rounded-lg flex items-center justify-center">
-                    <div className="text-center">
-                      <MapPin className="h-12 w-12 text-secondary-400 mx-auto mb-2" />
-                      <p className="text-secondary-600">Map integration would go here</p>
-                      <p className="text-sm text-secondary-500 mt-1">{listing.location}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {selectedTab === 'reviews' && (
-                <div>
-                  <h3 className="text-xl font-semibold text-secondary-900 mb-6">Guest Reviews</h3>
-                  <div className="space-y-6">
-                    {mockReviews.map((review) => (
-                      <div key={review.id} className="border-b border-secondary-200 pb-6">
-                        <div className="flex items-start space-x-4">
-                          <div className="w-10 h-10 bg-primary-500 rounded-full flex items-center justify-center text-white font-medium">
-                            {review.user.avatar}
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex items-center space-x-2 mb-2">
-                              <span className="font-medium text-secondary-900">{review.user.name}</span>
-                              <StarRating rating={review.rating} size="sm" />
-                              <span className="text-sm text-secondary-500">{review.date}</span>
-                            </div>
-                            <p className="text-secondary-700">{review.comment}</p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                </>
+              ) : (
+                <div className="h-96 bg-gray-100 rounded-lg flex items-center justify-center">
+                  {listing.type === 'car' ? (
+                    <Car className="h-16 w-16 text-gray-400" />
+                  ) : (
+                    <Home className="h-16 w-16 text-gray-400" />
+                  )}
                 </div>
               )}
             </div>
 
             {/* Host Information */}
             <Card className="p-6">
-              <h3 className="text-xl font-semibold text-secondary-900 mb-4">Meet your host</h3>
-              <div className="flex items-start space-x-4">
-                <div className="w-16 h-16 bg-gradient-to-br from-primary-500 to-primary-600 rounded-full flex items-center justify-center text-white text-xl font-bold">
-                  {listing.host.name.charAt(0)}
+              <div className="flex items-center space-x-4">
+                <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
+                  <User className="h-6 w-6 text-gray-500" />
                 </div>
-                <div className="flex-1">
-                  <div className="flex items-center space-x-2 mb-2">
-                    <h4 className="text-lg font-semibold text-secondary-900">{listing.host.name}</h4>
-                    <Badge variant="success" size="sm">
-                      <Shield className="h-3 w-3 mr-1" />
-                      Verified Host
-                    </Badge>
-                  </div>
-                  <div className="flex items-center space-x-4 text-sm text-secondary-600 mb-3">
-                    <span>★ 4.9 rating</span>
-                    <span>•</span>
-                    <span>12 reviews</span>
-                    <span>•</span>
-                    <span>Host since 2023</span>
-                  </div>
-                  <p className="text-secondary-700 mb-4">
-                    Experienced host committed to providing excellent service and memorable experiences.
-                  </p>
-                  <Button variant="outline" className="flex items-center space-x-2">
-                    <MessageCircle className="h-4 w-4" />
-                    <span>Contact Host</span>
+                <div>
+                  <h3 className="font-semibold text-gray-900">
+                    Hosted by {listing.host?.name || 'Host'}
+                  </h3>
+                  <p className="text-sm text-gray-600">Joined in 2023</p>
+                </div>
+                <div className="ml-auto">
+                  <Button variant="outline" size="sm">
+                    <MessageCircle className="h-4 w-4 mr-2" />
+                    Contact Host
                   </Button>
                 </div>
               </div>
             </Card>
+
+            {/* Description */}
+            <Card className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Description</h3>
+              <p className="text-gray-700 whitespace-pre-wrap">
+                {listing.description || 'No description available.'}
+              </p>
+            </Card>
+
+            {/* Amenities */}
+            <Card className="p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">What this place offers</h3>
+              <div className="grid grid-cols-2 gap-4">
+                {amenities.map((amenity, index) => (
+                  <div key={index} className="flex items-center space-x-3">
+                    <amenity.icon className="h-5 w-5 text-gray-500" />
+                    <span className="text-gray-700">{amenity.label}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            {/* Reviews */}
+            <Card className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-lg font-semibold text-gray-900">Reviews</h3>
+                <div className="flex items-center space-x-2">
+                  <StarRating rating={4.8} size="sm" />
+                  <span className="text-sm text-gray-600">(24 reviews)</span>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                {mockReviews.map((review) => (
+                  <div key={review.id} className="border-b border-gray-200 pb-6 last:border-b-0">
+                    <div className="flex items-start space-x-4">
+                      <div className="w-10 h-10 bg-gray-200 rounded-full flex items-center justify-center">
+                        <User className="h-5 w-5 text-gray-500" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center space-x-2 mb-1">
+                          <span className="font-medium text-gray-900">{review.user}</span>
+                          <StarRating rating={review.rating} size="sm" />
+                        </div>
+                        <p className="text-sm text-gray-600 mb-2">{formatDate(review.date)}</p>
+                        <p className="text-gray-700">{review.comment}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <Button variant="outline" className="w-full mt-6">
+                Show all 24 reviews
+              </Button>
+            </Card>
           </div>
 
-          {/* Booking Sidebar */}
+          {/* Right Column - Booking Card */}
           <div className="lg:col-span-1">
             <div className="sticky top-24">
               <Card className="p-6">
-                <div className="mb-6">
-                  <div className="flex items-baseline space-x-2 mb-2">
-                    <span className="text-2xl font-bold text-primary-600">
-                      ${listing.price_per_day}
-                    </span>
-                    <span className="text-secondary-500">per day</span>
+                <div className="text-center mb-6">
+                  <div className="text-3xl font-bold text-gray-900">
+                    {formatPrice(listing.price_per_day)}/day
                   </div>
-                  <div className="flex items-center space-x-1 text-sm">
-                    <Star className="h-4 w-4 text-amber-400 fill-current" />
-                    <span className="font-medium">4.8</span>
-                    <span className="text-secondary-500">(24 reviews)</span>
-                  </div>
+                  <p className="text-sm text-gray-600">Free cancellation</p>
                 </div>
 
-                <div className="space-y-4 mb-6">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-sm font-medium text-secondary-700 mb-1">
-                        Check-in
-                      </label>
-                      <Input
+                <div className="space-y-4">
+                  {/* Date Selection */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Check-in / Check-out
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
                         type="date"
-                        value={checkIn}
-                        onChange={(e) => setCheckIn(e.target.value)}
+                        value={selectedDates.checkIn}
+                        onChange={(e) => setSelectedDates(prev => ({ ...prev, checkIn: e.target.value }))}
                         min={new Date().toISOString().split('T')[0]}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-secondary-700 mb-1">
-                        Check-out
-                      </label>
-                      <Input
+                      <input
                         type="date"
-                        value={checkOut}
-                        onChange={(e) => setCheckOut(e.target.value)}
-                        min={checkIn || new Date().toISOString().split('T')[0]}
+                        value={selectedDates.checkOut}
+                        onChange={(e) => setSelectedDates(prev => ({ ...prev, checkOut: e.target.value }))}
+                        min={selectedDates.checkIn || new Date().toISOString().split('T')[0]}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
                   </div>
-                  
+
+                  {/* Guests */}
                   <div>
-                    <label className="block text-sm font-medium text-secondary-700 mb-1">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
                       Guests
                     </label>
                     <select
                       value={guests}
                       onChange={(e) => setGuests(Number(e.target.value))}
-                      className="w-full px-3 py-2 border border-secondary-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       {[1,2,3,4,5,6,7,8].map(num => (
-                        <option key={num} value={num}>{num} guest{num !== 1 ? 's' : ''}</option>
+                        <option key={num} value={num}>{num} guest{num > 1 ? 's' : ''}</option>
                       ))}
                     </select>
                   </div>
+
+                  {/* Loading State for Availability Check */}
+                  {checkingAvailability && (
+                    <div className="flex items-center justify-center py-2">
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      <span className="text-sm text-gray-600">Checking availability...</span>
+                    </div>
+                  )}
+
+                  {/* Booking Summary */}
+                  {availability && availability.pricing && days > 0 && (
+                    <div className="border-t border-gray-200 pt-4 space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span>{formatPrice(listing.price_per_day)} × {days} day{days > 1 ? 's' : ''}</span>
+                        <span>{formatPrice(availability.pricing.subtotal)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span>Service fee</span>
+                        <span>{formatPrice(availability.pricing.service_fee)}</span>
+                      </div>
+                      <div className="flex justify-between font-semibold text-lg border-t border-gray-200 pt-2">
+                        <span>Total</span>
+                        <span>{formatPrice(availability.pricing.total)}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Error Messages */}
+                  {bookingError && (
+                    <Alert variant="error" className="mt-4">
+                      {bookingError}
+                    </Alert>
+                  )}
+
+                  {/* Success Messages */}
+                  {bookingSuccess && (
+                    <Alert variant="success" className="mt-4">
+                      {bookingSuccess}
+                    </Alert>
+                  )}
+
+                  <Button 
+                    className="w-full" 
+                    size="lg" 
+                    onClick={handleBooking}
+                    disabled={
+                      listing.status === 'paused' || 
+                      isBooking || 
+                      !selectedDates.checkIn || 
+                      !selectedDates.checkOut || 
+                      checkingAvailability ||
+                      !!bookingError
+                    }
+                  >
+                    {isBooking ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Creating Booking...
+                      </>
+                    ) : listing.status === 'paused' ? (
+                      'Unavailable'
+                    ) : !selectedDates.checkIn || !selectedDates.checkOut ? (
+                      'Select Dates'
+                    ) : checkingAvailability ? (
+                      'Checking...'
+                    ) : availability ? (
+                      'Reserve Now'
+                    ) : (
+                      'Check Availability'
+                    )}
+                  </Button>
+
+                  {!isBooking && availability && (
+                    <p className="text-xs text-gray-500 text-center">
+                      You won't be charged yet
+                    </p>
+                  )}
                 </div>
-
-                {checkIn && checkOut && getDaysBetween() > 0 && (
-                  <div className="bg-secondary-50 rounded-lg p-4 mb-6">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-secondary-700">
-                        ${listing.price_per_day} × {getDaysBetween()} night{getDaysBetween() !== 1 ? 's' : ''}
-                      </span>
-                      <span className="font-medium">${calculateTotal()}</span>
-                    </div>
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-secondary-700">Service fee</span>
-                      <span className="font-medium">${Math.round(calculateTotal() * 0.1)}</span>
-                    </div>
-                    <hr className="my-2" />
-                    <div className="flex justify-between items-center font-semibold">
-                      <span>Total</span>
-                      <span>${calculateTotal() + Math.round(calculateTotal() * 0.1)}</span>
-                    </div>
-                  </div>
-                )}
-
-                <Button 
-                  className="w-full py-3 text-lg font-semibold"
-                  disabled={!checkIn || !checkOut || getDaysBetween() <= 0}
-                >
-                  {!checkIn || !checkOut ? 'Select dates' : 'Reserve now'}
-                </Button>
-
-                <p className="text-xs text-secondary-500 text-center mt-3">
-                  You won't be charged yet
-                </p>
               </Card>
 
-              {/* Quick Contact */}
-              <Card className="p-4 mt-4">
-                <div className="text-center">
-                  <MessageCircle className="h-8 w-8 text-primary-600 mx-auto mb-2" />
-                  <h4 className="font-medium text-secondary-900 mb-2">Have questions?</h4>
-                  <Button variant="outline" size="sm" className="w-full">
-                    Contact Host
-                  </Button>
+              {/* Safety Features */}
+              <Card className="p-6 mt-6">
+                <h4 className="font-semibold text-gray-900 mb-4">Safety features</h4>
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-3">
+                    <Shield className="h-5 w-5 text-green-500" />
+                    <span className="text-sm text-gray-700">Verified listing</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <CheckCircle className="h-5 w-5 text-green-500" />
+                    <span className="text-sm text-gray-700">Identity verified host</span>
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <Clock className="h-5 w-5 text-green-500" />
+                    <span className="text-sm text-gray-700">24/7 support</span>
+                  </div>
                 </div>
               </Card>
             </div>
