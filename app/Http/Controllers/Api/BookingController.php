@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Validator;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;  
 use Exception;
 
 class BookingController extends Controller
@@ -444,39 +445,141 @@ class BookingController extends Controller
     }
 
     // Decline booking (host only)
-    public function decline($id)
+ public function decline($id)
     {
+        // Enable query logging for debugging
+        DB::enableQueryLog();
+        
         try {
-            $booking = Booking::with('listing')
-                ->where('host_id', Auth::id())
-                ->findOrFail($id);
+            Log::info('=== DECLINE BOOKING DEBUG START ===');
+            Log::info('Booking ID: ' . $id);
+            Log::info('ID type: ' . gettype($id));
+            Log::info('Auth check: ' . (Auth::check() ? 'YES' : 'NO'));
+            Log::info('User ID: ' . Auth::id());
+            Log::info('User: ' . json_encode(Auth::user()));
+
+            // Test database connection
+            try {
+                DB::connection()->getPdo();
+                Log::info('Database connection: OK');
+            } catch (Exception $e) {
+                Log::error('Database connection failed: ' . $e->getMessage());
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Database connection failed',
+                    'error' => $e->getMessage()
+                ], 500);
+            }
+
+            // Check if booking exists at all
+            $bookingExists = Booking::where('id', $id)->exists();
+            Log::info('Booking exists: ' . ($bookingExists ? 'YES' : 'NO'));
+
+            if (!$bookingExists) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Booking does not exist',
+                    'debug' => [
+                        'booking_id' => $id,
+                        'checked_table' => 'bookings'
+                    ]
+                ], 404);
+            }
+
+            // Get booking without host filter first
+            $anyBooking = Booking::find($id);
+            Log::info('Any booking found: ' . json_encode($anyBooking ? [
+                'id' => $anyBooking->id,
+                'host_id' => $anyBooking->host_id,
+                'status' => $anyBooking->status,
+                'user_id' => $anyBooking->user_id
+            ] : null));
+
+            // Now try with host filter
+            $booking = Booking::where('id', $id)
+                             ->where('host_id', Auth::id())
+                             ->first();
+
+            Log::info('Host-filtered booking: ' . ($booking ? 'FOUND' : 'NOT FOUND'));
+
+            if (!$booking) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Booking not found or unauthorized',
+                    'debug' => [
+                        'booking_id' => $id,
+                        'your_user_id' => Auth::id(),
+                        'booking_host_id' => $anyBooking ? $anyBooking->host_id : 'N/A',
+                        'match' => $anyBooking && $anyBooking->host_id == Auth::id() ? 'YES' : 'NO'
+                    ]
+                ], 404);
+            }
 
             if ($booking->status !== 'pending') {
                 return response()->json([
                     'success' => false,
-                    'message' => 'Only pending bookings can be declined'
+                    'message' => 'Only pending bookings can be declined',
+                    'debug' => [
+                        'current_status' => $booking->status,
+                        'required_status' => 'pending'
+                    ]
                 ], 400);
             }
 
-            $booking->update(['status' => 'declined']);
+            // Try to update
+            Log::info('Attempting to update booking status...');
+            $updated = $booking->update(['status' => 'declined']);
+            Log::info('Update result: ' . ($updated ? 'SUCCESS' : 'FAILED'));
+
+            // Log the queries that were executed
+            $queries = DB::getQueryLog();
+            Log::info('Executed queries: ' . json_encode($queries));
+
+            if (!$updated) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to update booking status'
+                ], 500);
+            }
+
+            Log::info('=== DECLINE BOOKING DEBUG SUCCESS ===');
 
             return response()->json([
                 'success' => true,
-                'message' => 'Booking declined',
-                'booking' => $booking
+                'message' => 'Booking declined successfully',
+                'booking' => $booking->fresh() // Get fresh instance from DB
             ]);
 
         } catch (Exception $e) {
-            Log::error('Error declining booking', [
-                'booking_id' => $id,
-                'user_id' => Auth::id(),
-                'error' => $e->getMessage()
-            ]);
+            Log::error('=== DECLINE BOOKING ERROR ===');
+            Log::error('Exception class: ' . get_class($e));
+            Log::error('Error message: ' . $e->getMessage());
+            Log::error('Error file: ' . $e->getFile());
+            Log::error('Error line: ' . $e->getLine());
+            Log::error('Stack trace: ' . $e->getTraceAsString());
             
+            // Log queries if available
+            try {
+                $queries = DB::getQueryLog();
+                Log::error('Executed queries: ' . json_encode($queries));
+            } catch (Exception $qe) {
+                Log::error('Could not get query log: ' . $qe->getMessage());
+            }
+
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to decline booking'
+                'message' => 'Internal server error: ' . $e->getMessage(),
+                'debug' => config('app.debug') ? [
+                    'error_class' => get_class($e),
+                    'error_line' => $e->getLine(),
+                    'error_file' => basename($e->getFile()),
+                    'error_message' => $e->getMessage()
+                ] : null
             ], 500);
         }
     }
+
+    // Confirm booking (host only) - ALSO IMPROVED FOR CONSISTENCY
+  
+
 }

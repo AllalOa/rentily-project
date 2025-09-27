@@ -17,7 +17,18 @@ use Illuminate\Http\Request;
 */
 
 // Health check route
-Route::get('/health', fn () => response()->json(['status' => 'ok', 'timestamp' => now()]));
+Route::get('/health', function() {
+    return response()->json(['status' => 'ok', 'timestamp' => now()]);
+});
+
+// Test route to verify API is working
+Route::get('/test-api-loaded', function() {
+    return response()->json([
+        'message' => 'API routes file loaded successfully',
+        'timestamp' => now(),
+        'laravel_version' => app()->version()
+    ]);
+});
 
 // Public authentication routes
 Route::post('/register', [AuthController::class, 'register']);
@@ -45,13 +56,29 @@ Route::get('/listings/{listingId}/availability', [BookingController::class, 'che
 
 Route::middleware('auth:sanctum')->group(function () {
     
-    // Debug route for testing authentication
+    // Debug and test routes
     Route::get('/test-auth', function (Request $request) {
         return response()->json([
             'authenticated' => true,
             'user' => $request->user(),
             'user_id' => auth()->id()
         ]);
+    });
+
+    // Test route for debugging decline functionality
+    Route::put('/test-decline-simple/{id}', function($id) {
+        try {
+            \Log::info('Simple test route called with ID: ' . $id);
+            return response()->json([
+                'success' => true,
+                'message' => 'Test route works',
+                'id' => $id,
+                'user_id' => auth()->id()
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Test route error: ' . $e->getMessage());
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
     });
 
     // Auth routes
@@ -72,18 +99,18 @@ Route::middleware('auth:sanctum')->group(function () {
     // Test upload route
     Route::post('/test-upload', [ListingController::class, 'testUpload']);
 
-    // Host Listings CRUD (owner only)
+    // DIRECT HOST BOOKING ROUTES (No prefix/grouping complexity)
+    Route::get('/host/bookings', [BookingController::class, 'hostBookings']);
+    Route::put('/host/bookings/{id}/confirm', [BookingController::class, 'confirm']);
+    Route::put('/host/bookings/{id}/decline', [BookingController::class, 'decline']);
+
+    // Host Listings CRUD (keeping the prefix structure for other routes)
     Route::prefix('host')->name('host.')->group(function () {
         Route::get('/listings', [ListingController::class, 'index'])->name('listings.index');
         Route::post('/listings', [ListingController::class, 'store'])->name('listings.store');
         Route::get('/listings/{id}', [ListingController::class, 'show'])->name('listings.show');
         Route::put('/listings/{id}', [ListingController::class, 'update'])->name('listings.update');
         Route::delete('/listings/{id}', [ListingController::class, 'destroy'])->name('listings.destroy');
-        
-        // Host bookings management
-        Route::get('/bookings', [BookingController::class, 'hostBookings'])->name('bookings.index');
-        Route::put('/bookings/{booking}/confirm', [BookingController::class, 'confirm'])->name('bookings.confirm');
-        Route::put('/bookings/{booking}/decline', [BookingController::class, 'decline'])->name('bookings.decline');
     });
 
     // Bookings (guest bookings)
