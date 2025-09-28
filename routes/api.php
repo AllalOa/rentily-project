@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+
 use App\Http\Controllers\ListingController;
 use App\Http\Controllers\Api\BookingController;
 use App\Http\Controllers\Api\ReviewController;
@@ -55,6 +56,47 @@ Route::get('/listings/{listingId}/availability', [BookingController::class, 'che
 */
 
 Route::middleware('auth:sanctum')->group(function () {
+
+
+    
+ // Conversation Management
+    Route::prefix('conversations')->name('conversations.')->group(function () {
+        // Get all conversations for the authenticated user
+        Route::get('/', [MessageController::class, 'conversations'])->name('index');
+        
+        // Create a new conversation
+        Route::post('/', [MessageController::class, 'startConversation'])->name('store');
+        
+        // Get conversation statistics
+        Route::get('/stats', [MessageController::class, 'getStats'])->name('stats');
+        
+        // Routes for specific conversations
+        Route::prefix('{conversation}')->group(function () {
+            // Get messages for a conversation
+            Route::get('/messages', [MessageController::class, 'messages'])->name('messages');
+            
+            // Send a message to a conversation
+            Route::post('/messages', [MessageController::class, 'send'])->name('send');
+            
+            // Mark conversation as read
+            Route::put('/read', [MessageController::class, 'markAsRead'])->name('read');
+            
+            // Send typing indicator
+            Route::post('/typing', [MessageController::class, 'typing'])->name('typing');
+        });
+    });
+
+    // Message Management
+    Route::delete('/messages/{message}', [MessageController::class, 'deleteMessage'])->name('messages.delete');
+
+    // Contact Host Route (used from listing pages)
+    Route::post('/contact-host', [MessageController::class, 'contactHost'])->name('contact-host');
+
+    /*
+    |--------------------------------------------------------------------------
+    | END CHAT/MESSAGING ROUTES
+    |--------------------------------------------------------------------------
+    */
     
     // Debug and test routes
     Route::get('/test-auth', function (Request $request) {
@@ -147,3 +189,8 @@ Route::middleware('auth:sanctum')->group(function () {
         return response()->json(['message' => 'Verification email sent!']);
     })->name('verification.send');
 });
+
+// Broadcasting authentication route
+Route::post('/broadcasting/auth', function (Request $request) {
+    return response()->json([]);
+})->middleware('auth:sanctum');

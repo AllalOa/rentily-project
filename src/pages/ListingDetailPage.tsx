@@ -23,7 +23,8 @@ import {
   ParkingCircle,
   AirVent,
   AlertCircle,
-  Loader2
+  Loader2,
+  Send
 } from 'lucide-react'
 
 // Mock components (replace with your actual UI components)
@@ -96,6 +97,97 @@ const Alert = ({ children, variant = "error", className = "" }) => {
   )
 }
 
+// Modal Component for Contact Host
+const ContactHostModal = ({ isOpen, onClose, listing, onSendMessage, isLoading }) => {
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    if (isOpen) {
+      setMessage(`Hi! I'm interested in your ${listing?.type}: ${listing?.title}. Could you provide more information?`)
+    }
+  }, [isOpen, listing])
+
+  const handleSubmit = (e) => {
+    e.preventDefault()
+    if (message.trim()) {
+      onSendMessage(message.trim())
+    }
+  }
+
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg max-w-md w-full max-h-[80vh] overflow-y-auto">
+        <div className="p-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">
+            Contact {listing?.host?.name || 'Host'}
+          </h3>
+          
+          <div className="mb-4 p-3 bg-gray-50 rounded-lg">
+            <div className="flex items-center space-x-3">
+              <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
+                <User className="h-6 w-6 text-gray-500" />
+              </div>
+              <div>
+                <h4 className="font-medium text-gray-900">{listing?.title}</h4>
+                <p className="text-sm text-gray-600">{listing?.location}</p>
+              </div>
+            </div>
+          </div>
+
+          <form onSubmit={handleSubmit}>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Message
+              </label>
+              <textarea
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                rows={4}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Write your message here..."
+                maxLength={1000}
+                required
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                {message.length}/1000 characters
+              </p>
+            </div>
+
+            <div className="flex justify-end space-x-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onClose}
+                disabled={isLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={isLoading || !message.trim()}
+              >
+                {isLoading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <Send className="h-4 w-4 mr-2" />
+                    Send Message
+                  </>
+                )}
+              </Button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const StarRating = ({ rating, size = "md", showValue = false }) => {
   return (
     <div className="flex items-center space-x-1">
@@ -146,6 +238,12 @@ export const ListingDetailPage = () => {
   const [bookingSuccess, setBookingSuccess] = useState('')
   const [availability, setAvailability] = useState(null)
   const [checkingAvailability, setCheckingAvailability] = useState(false)
+  
+  // Contact Host Modal states
+  const [showContactModal, setShowContactModal] = useState(false)
+  const [isSendingMessage, setIsSendingMessage] = useState(false)
+  const [messageError, setMessageError] = useState('')
+  const [messageSuccess, setMessageSuccess] = useState('')
 
   useEffect(() => {
     fetchListing()
@@ -320,6 +418,95 @@ export const ListingDetailPage = () => {
     }
   }
 
+  // New function to handle contact host
+  const handleContactHost = () => {
+    const token = getAuthToken()
+    if (!token) {
+      setMessageError('Please log in to contact the host')
+      navigate('/login')
+      return
+    }
+
+    // Check if user is trying to contact themselves
+    if (listing?.user_id && parseInt(listing.user_id) === getCurrentUserId()) {
+      setMessageError('You cannot contact yourself')
+      return
+    }
+
+    setShowContactModal(true)
+    setMessageError('')
+    setMessageSuccess('')
+  }
+
+  const handleSendMessage = async (messageContent) => {
+    const token = getAuthToken()
+    if (!token) {
+      setMessageError('Please log in to send a message')
+      return
+    }
+
+    try {
+      setIsSendingMessage(true)
+      setMessageError('')
+      setMessageSuccess('')
+      
+      const apiUrl = import.meta.env?.VITE_API_URL || 'http://localhost:8000'
+      
+      const messageData = {
+        listing_id: parseInt(id),
+        message: messageContent
+      }
+
+      console.log('Sending message:', messageData)
+
+      const response = await fetch(`${apiUrl}/api/contact-host`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(messageData)
+      })
+
+      const data = await response.json()
+      console.log('Message response:', data)
+
+      if (response.ok && data.success) {
+        setMessageSuccess('Message sent successfully!')
+        setShowContactModal(false)
+        
+        // Redirect to messages page after a short delay
+        setTimeout(() => {
+          navigate('/messages')
+        }, 1500)
+      } else {
+        setMessageError(data.message || 'Failed to send message')
+      }
+    } catch (err) {
+      console.error('Message error:', err)
+      setMessageError('Network error. Please try again.')
+    } finally {
+      setIsSendingMessage(false)
+    }
+  }
+
+  // Helper function to get current user ID (you'll need to implement this based on your auth system)
+  const getCurrentUserId = () => {
+    // This is a placeholder - you'll need to implement getting the current user's ID
+    // from your auth context or JWT token
+    const token = getAuthToken()
+    if (!token) return null
+    
+    try {
+      // If you store user data in localStorage or have it available elsewhere
+      const userData = JSON.parse(localStorage.getItem('user_data') || '{}')
+      return userData.id
+    } catch {
+      return null
+    }
+  }
+
   const getImageUrl = (imagePath) => {
     const apiUrl = import.meta.env?.VITE_API_URL || 'http://localhost:8000'
     return `${apiUrl}/storage/${imagePath}`
@@ -437,6 +624,19 @@ export const ListingDetailPage = () => {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Success/Error Messages for Contact Host */}
+        {messageSuccess && (
+          <Alert variant="success" className="mb-4">
+            {messageSuccess}
+          </Alert>
+        )}
+        
+        {messageError && (
+          <Alert variant="error" className="mb-4">
+            {messageError}
+          </Alert>
+        )}
+
         {/* Title and Basic Info */}
         <div className="mb-6">
           <div className="flex items-start justify-between mb-4">
@@ -553,7 +753,7 @@ export const ListingDetailPage = () => {
                   <p className="text-sm text-gray-600">Joined in 2023</p>
                 </div>
                 <div className="ml-auto">
-                  <Button variant="outline" size="sm">
+                  <Button variant="outline" size="sm" onClick={handleContactHost}>
                     <MessageCircle className="h-4 w-4 mr-2" />
                     Contact Host
                   </Button>
@@ -770,6 +970,15 @@ export const ListingDetailPage = () => {
           </div>
         </div>
       </div>
+
+      {/* Contact Host Modal */}
+      <ContactHostModal
+        isOpen={showContactModal}
+        onClose={() => setShowContactModal(false)}
+        listing={listing}
+        onSendMessage={handleSendMessage}
+        isLoading={isSendingMessage}
+      />
     </div>
   )
 }

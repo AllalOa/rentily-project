@@ -30,6 +30,28 @@ class Conversation extends Model
     {
         return $this->hasMany(Message::class);
     }
+
+    public function lastMessage(): HasMany
+    {
+        return $this->hasMany(Message::class)->latest();
+    }
+
+    /**
+     * Check if a user is a participant in this conversation.
+     */
+    public function isParticipant(int $userId): bool
+    {
+        return $this->host_id === $userId || $this->renter_id === $userId;
+    }
+
+    /**
+     * Mark all messages as read for a specific user.
+     */
+    public function markAsReadForUser(int $userId): void
+    {
+        $this->messages()
+            ->where('sender_id', '!=', $userId)
+            ->where('read_status', false)
+            ->update(['read_status' => true]);
+    }
 }
-
-

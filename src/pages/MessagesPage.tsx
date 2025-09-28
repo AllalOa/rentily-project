@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { 
   Search, 
   Send, 
@@ -11,247 +11,524 @@ import {
   Star,
   Flag,
   Archive,
-  Trash2
+  Trash2,
+  Loader2,
+  User,
+  ArrowLeft,
+  Wifi,
+  WifiOff
 } from 'lucide-react'
-import { Card } from '@/components/ui/Card'
-import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
-import { Avatar } from '@/components/ui/Avatar'
-import { Badge } from '@/components/ui/Badge'
-// import { mockConversations, mockMessages } from '@/data/mockData'
-import { api } from '@/services/api'
-import { Conversation, Message } from '@/types'
-import { formatRelativeTime } from '@/lib/utils'
+import { websocketService } from '../services/websocketService' // Import the WebSocket service
 
-export const MessagesPage: React.FC = () => {
-  const [conversations, setConversations] = useState<Conversation[]>([])
-  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null)
-  const [messages, setMessages] = useState<Message[]>([])
+// Mock components (replace with your actual UI components)
+const Card = ({ children, className = "" }) => (
+  <div className={`bg-white rounded-lg shadow-sm border border-gray-200 ${className}`}>
+    {children}
+  </div>
+)
+
+const Button = ({ children, variant = "primary", size = "md", disabled = false, onClick, className = "" }) => {
+  const baseClasses = "inline-flex items-center justify-center font-medium rounded-lg transition-colors duration-200"
+  const variants = {
+    primary: "bg-blue-600 text-white hover:bg-blue-700 disabled:bg-gray-300",
+    outline: "border border-gray-300 bg-white text-gray-700 hover:bg-gray-50",
+    ghost: "text-gray-600 hover:bg-gray-100",
+    secondary: "bg-gray-100 text-gray-700 hover:bg-gray-200"
+  }
+  const sizes = {
+    sm: "px-3 py-1.5 text-sm",
+    md: "px-4 py-2 text-sm",
+    lg: "px-6 py-3 text-base"
+  }
+  
+  return (
+    <button
+      className={`${baseClasses} ${variants[variant]} ${sizes[size]} ${className}`}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  )
+}
+
+const Input = ({ placeholder, value, onChange, className = "" }) => (
+  <input
+    type="text"
+    placeholder={placeholder}
+    value={value}
+    onChange={onChange}
+    className={`w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${className}`}
+  />
+)
+
+const Avatar = ({ src, name, size = "md", showOnlineStatus = false, isOnline = false }) => {
+  const sizes = {
+    sm: "h-8 w-8",
+    md: "h-10 w-10",
+    lg: "h-12 w-12"
+  }
+  
+  return (
+    <div className="relative">
+      <div className={`${sizes[size]} bg-gray-200 rounded-full flex items-center justify-center overflow-hidden`}>
+        {src ? (
+          <img src={src} alt={name} className="w-full h-full object-cover" />
+        ) : (
+          <User className="h-5 w-5 text-gray-500" />
+        )}
+      </div>
+      {showOnlineStatus && (
+        <div className={`absolute -bottom-1 -right-1 w-3 h-3 rounded-full border-2 border-white ${
+          isOnline ? 'bg-green-500' : 'bg-gray-400'
+        }`} />
+      )}
+    </div>
+  )
+}
+
+const Badge = ({ children, variant = "primary", size = "md" }) => {
+  const variants = {
+    primary: "bg-blue-100 text-blue-800",
+    success: "bg-green-100 text-green-800",
+    warning: "bg-yellow-100 text-yellow-800",
+    error: "bg-red-100 text-red-800",
+    secondary: "bg-gray-100 text-gray-800",
+    default: "bg-blue-600 text-white"
+  }
+  const sizes = {
+    sm: "px-2 py-1 text-xs",
+    md: "px-2.5 py-0.5 text-sm"
+  }
+  
+  return (
+    <span className={`inline-flex items-center font-medium rounded-full ${variants[variant]} ${sizes[size]}`}>
+      {children}
+    </span>
+  )
+}
+
+// Typing indicator component
+const TypingIndicator = ({ userName }) => (
+  <div className="flex items-start space-x-2 max-w-xs">
+    <Avatar size="sm" name={userName} />
+    <div className="bg-gray-100 rounded-lg px-4 py-2">
+      <div className="flex space-x-1">
+        <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
+        <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+        <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+      </div>
+    </div>
+  </div>
+)
+
+// Connection status indicator
+const ConnectionStatus = ({ isConnected }) => (
+  <div className={`flex items-center space-x-1 text-xs ${isConnected ? 'text-green-600' : 'text-red-600'}`}>
+    {isConnected ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+    <span>{isConnected ? 'Connected' : 'Disconnected'}</span>
+  </div>
+)
+
+// Utility functions
+const formatRelativeTime = (dateString) => {
+  const date = new Date(dateString)
+  const now = new Date()
+  const diffInSeconds = Math.floor((now - date) / 1000)
+  
+  if (diffInSeconds < 60) {
+    return 'Just now'
+  } else if (diffInSeconds < 3600) {
+    const minutes = Math.floor(diffInSeconds / 60)
+    return `${minutes}m ago`
+  } else if (diffInSeconds < 86400) {
+    const hours = Math.floor(diffInSeconds / 3600)
+    return `${hours}h ago`
+  } else {
+    const days = Math.floor(diffInSeconds / 86400)
+    return `${days}d ago`
+  }
+}
+
+const getAuthToken = () => {
+  return localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token')
+}
+
+const getCurrentUserId = () => {
+  try {
+    const userData = JSON.parse(localStorage.getItem('user_data') || '{}')
+    return userData.id || '1'
+  } catch {
+    return '1'
+  }
+}
+
+const getCurrentUser = () => {
+  try {
+    const userData = JSON.parse(localStorage.getItem('user_data') || '{}')
+    return userData
+  } catch {
+    return { id: '1', name: 'User' }
+  }
+}
+
+export const MessagesPage = () => {
+  const [conversations, setConversations] = useState([])
+  const [selectedConversation, setSelectedConversation] = useState(null)
+  const [messages, setMessages] = useState([])
   const [newMessage, setNewMessage] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const [loadingMessages, setLoadingMessages] = useState(false)
+  const [sendingMessage, setSendingMessage] = useState(false)
+  const [error, setError] = useState('')
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768)
+  const [isWebSocketConnected, setIsWebSocketConnected] = useState(false)
+  const [typingUsers, setTypingUsers] = useState(new Set())
+  
+  const messagesEndRef = useRef(null)
+  const typingTimeoutRef = useRef(null)
+  const currentUserId = getCurrentUserId()
+  const currentUser = getCurrentUser()
 
-  // Fetch conversations on component mount
+  // Handle responsive design
   useEffect(() => {
-    const fetchConversations = async () => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768)
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [])
+
+  // Initialize WebSocket connection
+  useEffect(() => {
+    const initializeWebSocket = async () => {
       try {
-        setLoading(true)
-        const response = await api.get('/v1/conversations')
-        const apiConversations = (response.data.data || []).map((conv: any) => ({
-          id: String(conv.id),
-          participants: [
-            {
-              id: String(conv.host?.id || ''),
-              name: conv.host?.name || 'Host',
-              email: conv.host?.email || '',
-              avatar: conv.host?.avatar || '',
-              isVerified: true,
-              joinedAt: conv.host?.created_at || '',
-              rating: 0,
-              reviewCount: 0,
-              isHost: true,
-              preferences: {
-                notifications: { email: true, sms: false, push: true },
-                privacy: { showProfile: true, showBookings: false },
-                currency: 'USD',
-                language: 'en'
-              }
-            },
-            {
-              id: String(conv.renter?.id || ''),
-              name: conv.renter?.name || 'Renter',
-              email: conv.renter?.email || '',
-              avatar: conv.renter?.avatar || '',
-              isVerified: true,
-              joinedAt: conv.renter?.created_at || '',
-              rating: 0,
-              reviewCount: 0,
-              isHost: false,
-              preferences: {
-                notifications: { email: true, sms: false, push: true },
-                privacy: { showProfile: true, showBookings: false },
-                currency: 'USD',
-                language: 'en'
-              }
-            }
-          ],
-          listing: conv.listing ? {
-            id: String(conv.listing.id),
-            title: conv.listing.title,
-            images: [conv.listing.images?.[0]?.image_path || ''],
-            location: {
-              address: conv.listing.location,
-              city: conv.listing.location,
-              state: '',
-              country: '',
-              zipCode: '',
-              coordinates: { lat: 0, lng: 0 },
-            }
-          } : null,
-          lastMessage: conv.last_message ? {
-            id: String(conv.last_message.id),
-            conversationId: String(conv.id),
-            senderId: String(conv.last_message.sender_id),
-            sender: {
-              id: String(conv.last_message.sender_id),
-              name: 'User',
-              email: '',
-              avatar: '',
-              isVerified: true,
-              joinedAt: '',
-              rating: 0,
-              reviewCount: 0,
-              isHost: false,
-              preferences: {
-                notifications: { email: true, sms: false, push: true },
-                privacy: { showProfile: true, showBookings: false },
-                currency: 'USD',
-                language: 'en'
-              }
-            },
-            content: conv.last_message.content,
-            type: 'text' as const,
-            isRead: true,
-            createdAt: conv.last_message.created_at,
-          } : null,
-          unreadCount: 0,
-          createdAt: conv.created_at,
-          updatedAt: conv.updated_at || conv.created_at,
-        }))
-        setConversations(apiConversations)
+        const echo = websocketService.connect(currentUser)
+        setIsWebSocketConnected(websocketService.isWebSocketConnected())
+        
+        // Update connection status periodically
+        const interval = setInterval(() => {
+          setIsWebSocketConnected(websocketService.isWebSocketConnected())
+        }, 1000)
+
+        return () => clearInterval(interval)
       } catch (error) {
-        console.error('Error fetching conversations:', error)
-        setConversations([])
-      } finally {
-        setLoading(false)
+        console.error('Failed to initialize WebSocket:', error)
+        setIsWebSocketConnected(false)
       }
     }
 
-    fetchConversations()
-  }, [])
+    if (currentUser.id) {
+      initializeWebSocket()
+    }
 
+    return () => {
+      websocketService.disconnect()
+    }
+  }, [currentUser.id])
+
+  // Setup conversation WebSocket listeners
   useEffect(() => {
-    if (selectedConversation) {
-      // Fetch messages for selected conversation
-      const fetchMessages = async () => {
-        try {
-          const response = await api.get(`/v1/conversations/${selectedConversation.id}/messages`)
-          const apiMessages = (response.data.data || []).map((msg: any) => ({
-            id: String(msg.id),
-            conversationId: String(msg.conversation_id),
-            senderId: String(msg.sender_id),
-            sender: {
-              id: String(msg.sender_id),
-              name: msg.sender?.name || 'User',
-              email: msg.sender?.email || '',
-              avatar: msg.sender?.avatar || '',
-              isVerified: true,
-              joinedAt: msg.sender?.created_at || '',
-              rating: 0,
-              reviewCount: 0,
-              isHost: false,
-              preferences: {
-                notifications: { email: true, sms: false, push: true },
-                privacy: { showProfile: true, showBookings: false },
-                currency: 'USD',
-                language: 'en'
+    if (selectedConversation && isWebSocketConnected) {
+      const callbacks = {
+        onNewMessage: (data) => {
+          console.log('Received new message via WebSocket:', data)
+          
+          // Add message to current conversation if it matches
+          if (data.conversation_id === selectedConversation.id) {
+            const newMessage = {
+              id: data.id,
+              conversation_id: data.conversation_id,
+              sender_id: data.sender_id,
+              sender: data.sender,
+              content: data.content,
+              created_at: data.created_at
+            }
+            
+            setMessages(prev => {
+              // Avoid duplicates
+              const exists = prev.find(msg => msg.id === newMessage.id)
+              if (exists) return prev
+              return [...prev, newMessage]
+            })
+          }
+
+          // Update conversations list
+          setConversations(prev => 
+            prev.map(conv => 
+              conv.id === data.conversation_id 
+                ? { 
+                    ...conv, 
+                    last_message: {
+                      id: data.id,
+                      content: data.content,
+                      sender_id: data.sender_id,
+                      created_at: data.created_at
+                    },
+                    updated_at: data.created_at
+                  }
+                : conv
+            )
+          )
+        },
+        
+        onTyping: (data) => {
+          console.log('Received typing indicator:', data)
+          
+          if (data.user_id !== parseInt(currentUserId)) {
+            setTypingUsers(prev => {
+              const newSet = new Set(prev)
+              if (data.is_typing) {
+                newSet.add(data.user_name)
+              } else {
+                newSet.delete(data.user_name)
               }
-            },
-            content: msg.content,
-            type: 'text' as const,
-            isRead: true,
-            createdAt: msg.created_at,
-          }))
-          setMessages(apiMessages)
-        } catch (error) {
-          console.error('Error fetching messages:', error)
-          setMessages([])
+              return newSet
+            })
+
+            // Auto-clear typing indicator after 3 seconds
+            if (data.is_typing) {
+              setTimeout(() => {
+                setTypingUsers(prev => {
+                  const newSet = new Set(prev)
+                  newSet.delete(data.user_name)
+                  return newSet
+                })
+              }, 3000)
+            }
+          }
         }
       }
 
-      fetchMessages()
+      websocketService.joinConversation(selectedConversation.id, callbacks)
+
+      return () => {
+        websocketService.leaveConversation(selectedConversation.id)
+      }
+    }
+  }, [selectedConversation, isWebSocketConnected, currentUserId])
+
+  // Fetch conversations on component mount
+  useEffect(() => {
+    fetchConversations()
+  }, [])
+
+  // Fetch messages when conversation is selected
+  useEffect(() => {
+    if (selectedConversation) {
+      fetchMessages(selectedConversation.id)
     }
   }, [selectedConversation])
 
+  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
-    // Scroll to bottom when new messages arrive
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    scrollToBottom()
   }, [messages])
 
-  const handleSendMessage = async () => {
-    if (!newMessage.trim() || !selectedConversation) return
-
+  const fetchConversations = async () => {
     try {
-      const response = await api.post(`/v1/conversations/${selectedConversation.id}/messages`, {
-        content: newMessage,
-      })
+      setLoading(true)
+      setError('')
+      
+      const apiUrl = import.meta.env?.VITE_API_URL || 'http://localhost:8000'
+      const token = getAuthToken()
 
-      const newMessageData = response.data.data
-      const message: Message = {
-        id: String(newMessageData.id),
-        conversationId: String(newMessageData.conversation_id),
-        senderId: String(newMessageData.sender_id),
-        sender: {
-          id: String(newMessageData.sender_id),
-          name: 'You',
-          email: '',
-          avatar: '',
-          isVerified: true,
-          joinedAt: '',
-          rating: 0,
-          reviewCount: 0,
-          isHost: false,
-          preferences: {
-            notifications: { email: true, sms: false, push: true },
-            privacy: { showProfile: true, showBookings: false },
-            currency: 'USD',
-            language: 'en'
-          }
-        },
-        content: newMessageData.content,
-        type: 'text',
-        isRead: true,
-        createdAt: newMessageData.created_at
+      if (!token) {
+        setError('Please log in to view messages')
+        return
       }
 
-      setMessages(prev => [...prev, message])
-      setNewMessage('')
+      const response = await fetch(`${apiUrl}/api/conversations`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+        }
+      })
 
-      // Update conversation's last message
-      setConversations(prev => 
-        prev.map(conv => 
-          conv.id === selectedConversation.id 
-            ? { ...conv, lastMessage: message, updatedAt: new Date().toISOString() }
-            : conv
-        )
-      )
-    } catch (error) {
-      console.error('Error sending message:', error)
+      if (!response.ok) {
+        throw new Error('Failed to fetch conversations')
+      }
+
+      const data = await response.json()
+      console.log('Conversations response:', data)
+      
+      if (data.success) {
+        setConversations(data.data || [])
+      } else {
+        throw new Error(data.message || 'Failed to load conversations')
+      }
+    } catch (err) {
+      console.error('Error fetching conversations:', err)
+      setError(err.message)
+      setConversations([])
+    } finally {
+      setLoading(false)
     }
   }
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const fetchMessages = async (conversationId) => {
+    try {
+      setLoadingMessages(true)
+      
+      const apiUrl = import.meta.env?.VITE_API_URL || 'http://localhost:8000'
+      const token = getAuthToken()
+
+      const response = await fetch(`${apiUrl}/api/conversations/${conversationId}/messages`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json',
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch messages')
+      }
+
+      const data = await response.json()
+      console.log('Messages response:', data)
+      
+      if (data.success) {
+        setMessages(data.data || [])
+      } else {
+        throw new Error(data.message || 'Failed to load messages')
+      }
+    } catch (err) {
+      console.error('Error fetching messages:', err)
+      setMessages([])
+    } finally {
+      setLoadingMessages(false)
+    }
+  }
+
+  const handleSendMessage = async () => {
+    if (!newMessage.trim() || !selectedConversation || sendingMessage) {
+      return
+    }
+
+    try {
+      setSendingMessage(true)
+      
+      const apiUrl = import.meta.env?.VITE_API_URL || 'http://localhost:8000'
+      const token = getAuthToken()
+
+      const response = await fetch(`${apiUrl}/api/conversations/${selectedConversation.id}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          content: newMessage.trim()
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Failed to send message')
+      }
+
+      const data = await response.json()
+      console.log('Send message response:', data)
+
+      if (data.success) {
+        // Clear the input immediately for better UX
+        setNewMessage('')
+        
+        // The message will be added via WebSocket, but add it locally as fallback
+        if (!isWebSocketConnected) {
+          setMessages(prev => [...prev, data.data])
+          
+          setConversations(prev => 
+            prev.map(conv => 
+              conv.id === selectedConversation.id 
+                ? { 
+                    ...conv, 
+                    last_message: data.data,
+                    updated_at: data.data.created_at
+                  }
+                : conv
+            )
+          )
+        }
+      } else {
+        throw new Error(data.message || 'Failed to send message')
+      }
+    } catch (err) {
+      console.error('Error sending message:', err)
+      alert('Failed to send message. Please try again.')
+    } finally {
+      setSendingMessage(false)
+    }
+  }
+
+  const handleTyping = useCallback(() => {
+    if (!selectedConversation || !isWebSocketConnected) return
+
+    // Send typing indicator
+    websocketService.sendTypingIndicator(selectedConversation.id, true)
+
+    // Clear previous timeout
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current)
+    }
+
+    // Set timeout to stop typing indicator
+    typingTimeoutRef.current = setTimeout(() => {
+      websocketService.sendTypingIndicator(selectedConversation.id, false)
+    }, 1000)
+  }, [selectedConversation, isWebSocketConnected])
+
+  const handleInputChange = (e) => {
+    setNewMessage(e.target.value)
+    handleTyping()
+  }
+
+  const handleKeyPress = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSendMessage()
     }
   }
 
-  const filteredConversations = conversations.filter(conv => 
-    conv.participants.some(p => 
-      p.name.toLowerCase().includes(searchQuery.toLowerCase())
-    ) || 
-    (conv.listing?.title.toLowerCase().includes(searchQuery.toLowerCase()))
-  )
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  const getOtherParticipant = (conversation) => {
+    if (!conversation) return null
+    
+    const isHost = conversation.host_id === parseInt(currentUserId)
+    
+    return isHost ? {
+      id: conversation.renter_id,
+      name: conversation.renter?.name || 'Renter',
+      email: conversation.renter?.email || '',
+      avatar: conversation.renter?.avatar || ''
+    } : {
+      id: conversation.host_id,
+      name: conversation.host?.name || 'Host',
+      email: conversation.host?.email || '',
+      avatar: conversation.host?.avatar || ''
+    }
+  }
+
+  const filteredConversations = conversations.filter(conv => {
+    const otherParticipant = getOtherParticipant(conv)
+    return otherParticipant?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+           conv.last_message?.content?.toLowerCase().includes(searchQuery.toLowerCase())
+  })
 
   const renderConversationList = () => (
-    <div className="w-full md:w-80 lg:w-96 border-r border-secondary-200 bg-white">
+    <div className={`${isMobile && selectedConversation ? 'hidden' : 'flex'} flex-col w-full md:w-80 lg:w-96 border-r border-gray-200 bg-white h-full`}>
       {/* Header */}
-      <div className="p-4 border-b border-secondary-200">
-        <h2 className="text-lg font-semibold text-secondary-900 mb-4">Messages</h2>
+      <div className="p-4 border-b border-gray-200 flex-shrink-0">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-gray-900">Messages</h2>
+          <ConnectionStatus isConnected={isWebSocketConnected} />
+        </div>
         <div className="relative">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-secondary-400" />
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
           <Input
             placeholder="Search conversations..."
             value={searchQuery}
@@ -262,58 +539,65 @@ export const MessagesPage: React.FC = () => {
       </div>
 
       {/* Conversations List */}
-      <div className="overflow-y-auto max-h-[calc(100vh-200px)]">
-        {filteredConversations.length === 0 ? (
-          <div className="p-4 text-center text-secondary-600">
-            No conversations found
+      <div className="overflow-y-auto flex-1">
+        {loading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+            <span className="ml-2 text-gray-600">Loading conversations...</span>
+          </div>
+        ) : error ? (
+          <div className="p-4 text-center text-red-600">
+            {error}
+          </div>
+        ) : filteredConversations.length === 0 ? (
+          <div className="p-4 text-center text-gray-600">
+            {searchQuery ? 'No conversations match your search' : 'No conversations yet'}
           </div>
         ) : (
-          filteredConversations.map((conversation) => (
-            <div
-              key={conversation.id}
-              onClick={() => setSelectedConversation(conversation)}
-              className={`p-4 border-b border-secondary-100 cursor-pointer hover:bg-secondary-50 transition-colors duration-200 ${
-                selectedConversation?.id === conversation.id ? 'bg-primary-50 border-l-4 border-l-primary-500' : ''
-              }`}
-            >
-              <div className="flex items-start space-x-3">
-                <Avatar
-                  src={conversation.participants.find(p => p.id !== '1')?.avatar}
-                  name={conversation.participants.find(p => p.id !== '1')?.name || 'User'}
-                  size="md"
-                  showOnlineStatus
-                  isOnline={true}
-                />
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-1">
-                    <h3 className="font-medium text-secondary-900 truncate">
-                      {conversation.participants.find(p => p.id !== '1')?.name || 'Unknown User'}
-                    </h3>
-                    <span className="text-xs text-secondary-500">
-                      {formatRelativeTime(conversation.updatedAt)}
-                    </span>
-                  </div>
-                  
-                  {conversation.listing && (
-                    <p className="text-sm text-secondary-600 truncate mb-1">
-                      {conversation.listing.title}
-                    </p>
-                  )}
-                  
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-secondary-600 truncate flex-1">
-                      {conversation.lastMessage?.content || 'No messages yet'}
-                    </p>
-                    {conversation.unreadCount > 0 && (
-                      <Badge variant="default" size="sm">
-                        {conversation.unreadCount}
-                      </Badge>
-                    )}
+          filteredConversations.map((conversation) => {
+            const otherParticipant = getOtherParticipant(conversation)
+            
+            return (
+              <div
+                key={conversation.id}
+                onClick={() => setSelectedConversation(conversation)}
+                className={`p-4 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors duration-200 ${
+                  selectedConversation?.id === conversation.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
+                }`}
+              >
+                <div className="flex items-start space-x-3">
+                  <Avatar
+                    src={otherParticipant?.avatar}
+                    name={otherParticipant?.name || 'User'}
+                    size="md"
+                    showOnlineStatus
+                    isOnline={false}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <h3 className="font-medium text-gray-900 truncate">
+                        {otherParticipant?.name || 'Unknown User'}
+                      </h3>
+                      <span className="text-xs text-gray-500 flex-shrink-0">
+                        {formatRelativeTime(conversation.updated_at)}
+                      </span>
+                    </div>
+                    
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-gray-600 truncate flex-1">
+                        {conversation.last_message?.content || 'No messages yet'}
+                      </p>
+                      {conversation.unread_count > 0 && (
+                        <Badge variant="default" size="sm" className="ml-2 flex-shrink-0">
+                          {conversation.unread_count}
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))
+            )
+          })
         )}
       </div>
     </div>
@@ -322,15 +606,15 @@ export const MessagesPage: React.FC = () => {
   const renderChatArea = () => {
     if (!selectedConversation) {
       return (
-        <div className="flex-1 flex items-center justify-center bg-secondary-50">
+        <div className="flex-1 flex items-center justify-center bg-gray-50">
           <div className="text-center">
-            <div className="w-16 h-16 bg-secondary-200 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Search className="h-8 w-8 text-secondary-400" />
+            <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Search className="h-8 w-8 text-gray-400" />
             </div>
-            <h3 className="text-lg font-medium text-secondary-900 mb-2">
+            <h3 className="text-lg font-medium text-gray-900 mb-2">
               Select a conversation
             </h3>
-            <p className="text-secondary-600">
+            <p className="text-gray-600">
               Choose a conversation from the list to start messaging
             </p>
           </div>
@@ -338,27 +622,37 @@ export const MessagesPage: React.FC = () => {
       )
     }
 
-    const otherParticipant = selectedConversation.participants.find(p => p.id !== '1')
+    const otherParticipant = getOtherParticipant(selectedConversation)
 
     return (
-      <div className="flex-1 flex flex-col bg-white">
+      <div className={`${isMobile && selectedConversation ? 'flex' : 'hidden md:flex'} flex-col bg-white h-full flex-1`}>
         {/* Chat Header */}
-        <div className="p-4 border-b border-secondary-200 bg-white">
+        <div className="p-4 border-b border-gray-200 bg-white flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center space-x-3">
+              {isMobile && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedConversation(null)}
+                  className="mr-2"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+              )}
               <Avatar
                 src={otherParticipant?.avatar}
                 name={otherParticipant?.name || 'User'}
                 size="md"
                 showOnlineStatus
-                isOnline={true}
+                isOnline={false}
               />
               <div>
-                <h3 className="font-semibold text-secondary-900">
+                <h3 className="font-semibold text-gray-900">
                   {otherParticipant?.name || 'Unknown User'}
                 </h3>
-                <p className="text-sm text-secondary-600">
-                  {selectedConversation.listing?.title}
+                <p className="text-sm text-gray-600">
+                  Last seen recently
                 </p>
               </div>
             </div>
@@ -382,45 +676,60 @@ export const MessagesPage: React.FC = () => {
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.length === 0 ? (
-            <div className="text-center text-secondary-600">
+          {loadingMessages ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
+              <span className="ml-2 text-gray-600">Loading messages...</span>
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="text-center text-gray-600 py-8">
               No messages yet. Start the conversation!
             </div>
           ) : (
-            messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex ${message.senderId === '1' ? 'justify-end' : 'justify-start'}`}
-              >
-                <div className={`flex space-x-2 max-w-xs lg:max-w-md ${message.senderId === '1' ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                  <Avatar
-                    src={message.sender.avatar}
-                    name={message.sender.name}
-                    size="sm"
-                  />
-                  <div className={`flex flex-col ${message.senderId === '1' ? 'items-end' : 'items-start'}`}>
-                    <div
-                      className={`px-4 py-2 rounded-lg ${
-                        message.senderId === '1'
-                          ? 'bg-primary-600 text-white'
-                          : 'bg-secondary-100 text-secondary-900'
-                      }`}
-                    >
-                      <p className="text-sm">{message.content}</p>
+            messages.map((message) => {
+              const isOwnMessage = message.sender_id === parseInt(currentUserId)
+              
+              return (
+                <div
+                  key={message.id}
+                  className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
+                >
+                  <div className={`flex space-x-2 max-w-xs lg:max-w-md ${isOwnMessage ? 'flex-row-reverse space-x-reverse' : ''}`}>
+                    <Avatar
+                      src={message.sender?.avatar}
+                      name={message.sender?.name || 'User'}
+                      size="sm"
+                    />
+                    <div className={`flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'}`}>
+                      <div
+                        className={`px-4 py-2 rounded-lg ${
+                          isOwnMessage
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-100 text-gray-900'
+                        }`}
+                      >
+                        <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                      </div>
+                      <span className="text-xs text-gray-500 mt-1">
+                        {formatRelativeTime(message.created_at)}
+                      </span>
                     </div>
-                    <span className="text-xs text-secondary-500 mt-1">
-                      {formatRelativeTime(message.createdAt)}
-                    </span>
                   </div>
                 </div>
-              </div>
-            ))
+              )
+            })
           )}
+          
+          {/* Typing indicators */}
+          {Array.from(typingUsers).map(userName => (
+            <TypingIndicator key={userName} userName={userName} />
+          ))}
+          
           <div ref={messagesEndRef} />
         </div>
 
         {/* Message Input */}
-        <div className="p-4 border-t border-secondary-200 bg-white">
+        <div className="p-4 border-t border-gray-200 bg-white flex-shrink-0">
           <div className="flex items-end space-x-2">
             <Button variant="ghost" size="sm">
               <Paperclip className="h-4 w-4" />
@@ -428,12 +737,13 @@ export const MessagesPage: React.FC = () => {
             <div className="flex-1">
               <textarea
                 value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
+                onChange={handleInputChange}
                 onKeyPress={handleKeyPress}
                 placeholder="Type a message..."
-                className="w-full px-3 py-2 border border-secondary-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary-500"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
                 rows={1}
                 style={{ minHeight: '40px', maxHeight: '120px' }}
+                disabled={sendingMessage}
               />
             </div>
             <Button variant="ghost" size="sm">
@@ -441,10 +751,14 @@ export const MessagesPage: React.FC = () => {
             </Button>
             <Button
               onClick={handleSendMessage}
-              disabled={!newMessage.trim()}
+              disabled={!newMessage.trim() || sendingMessage}
               size="sm"
             >
-              <Send className="h-4 w-4" />
+              {sendingMessage ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
             </Button>
           </div>
         </div>
@@ -453,20 +767,20 @@ export const MessagesPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-secondary-50">
+    <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Header */}
         <div className="mb-6">
-          <h1 className="text-3xl font-bold text-secondary-900 mb-2">
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
             Messages
           </h1>
-          <p className="text-secondary-600">
+          <p className="text-gray-600">
             Communicate with hosts and guests
           </p>
         </div>
 
         {/* Messages Interface */}
-        <Card className="overflow-hidden h-[calc(100vh-200px)]">
+        <Card className="overflow-hidden" style={{ height: 'calc(100vh - 200px)' }}>
           <div className="flex h-full">
             {renderConversationList()}
             {renderChatArea()}
