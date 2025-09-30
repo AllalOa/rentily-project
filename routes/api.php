@@ -1,7 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-
+use Illuminate\Support\Facades\Broadcast;
 use App\Http\Controllers\ListingController;
 use App\Http\Controllers\Api\BookingController;
 use App\Http\Controllers\Api\ReviewController;
@@ -17,12 +17,10 @@ use Illuminate\Http\Request;
 |--------------------------------------------------------------------------
 */
 
-// Health check route
 Route::get('/health', function() {
     return response()->json(['status' => 'ok', 'timestamp' => now()]);
 });
 
-// Test route to verify API is working
 Route::get('/test-api-loaded', function() {
     return response()->json([
         'message' => 'API routes file loaded successfully',
@@ -38,16 +36,14 @@ Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
 Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 Route::post('/verify-email', [AuthController::class, 'verifyEmail']);
 
-// Public listings (for browsing) - no authentication required
+// Public listings
 Route::get('/listings', [ListingController::class, 'publicIndex']);
 Route::get('/listings/{listing}', [ListingController::class, 'publicShow']);
-
-// Public reviews - no authentication required
-Route::get('/reviews', [ReviewController::class, 'index']);
-
-// IMPORTANT: Check availability (PUBLIC route - no auth required)
 Route::get('/listings/{listingId}/availability', [BookingController::class, 'checkAvailability'])
     ->name('listings.availability');
+
+// Public reviews
+Route::get('/reviews', [ReviewController::class, 'index']);
 
 /*
 |--------------------------------------------------------------------------
@@ -56,49 +52,42 @@ Route::get('/listings/{listingId}/availability', [BookingController::class, 'che
 */
 
 Route::middleware('auth:sanctum')->group(function () {
-
-
     
- // Conversation Management
+    // IMPORTANT: Broadcasting auth route - MUST come first
+    Broadcast::routes();
+    
+    // Auth routes
+    Route::post('/logout', [AuthController::class, 'logout']);
+    Route::post('/refresh', [AuthController::class, 'refresh']);
+    Route::post('/verify-email/resend', [AuthController::class, 'resendVerification']);
+    
+    // User profile routes
+    Route::get('/profile', [AuthController::class, 'profile']);
+    Route::put('/profile', [AuthController::class, 'updateProfile']);
+    Route::put('/password', [AuthController::class, 'updatePassword']);
+    Route::delete('/account', [AuthController::class, 'deleteAccount']);
+    Route::get('/preferences', [AuthController::class, 'getPreferences']);
+    Route::put('/preferences', [AuthController::class, 'updatePreferences']);
+    
+    // Conversation Management
     Route::prefix('conversations')->name('conversations.')->group(function () {
-        // Get all conversations for the authenticated user
         Route::get('/', [MessageController::class, 'conversations'])->name('index');
-        
-        // Create a new conversation
         Route::post('/', [MessageController::class, 'startConversation'])->name('store');
-        
-        // Get conversation statistics
         Route::get('/stats', [MessageController::class, 'getStats'])->name('stats');
         
-        // Routes for specific conversations
         Route::prefix('{conversation}')->group(function () {
-            // Get messages for a conversation
             Route::get('/messages', [MessageController::class, 'messages'])->name('messages');
-            
-            // Send a message to a conversation
             Route::post('/messages', [MessageController::class, 'send'])->name('send');
-            
-            // Mark conversation as read
             Route::put('/read', [MessageController::class, 'markAsRead'])->name('read');
-            
-            // Send typing indicator
             Route::post('/typing', [MessageController::class, 'typing'])->name('typing');
         });
     });
-
-    // Message Management
-    Route::delete('/messages/{message}', [MessageController::class, 'deleteMessage'])->name('messages.delete');
-
-    // Contact Host Route (used from listing pages)
-    Route::post('/contact-host', [MessageController::class, 'contactHost'])->name('contact-host');
-
-    /*
-    |--------------------------------------------------------------------------
-    | END CHAT/MESSAGING ROUTES
-    |--------------------------------------------------------------------------
-    */
     
-    // Debug and test routes
+    Route::delete('/messages/{message}', [MessageController::class, 'deleteMessage'])->name('messages.delete');
+    Route::post('/contact-host', [MessageController::class, 'contactHost'])->name('contact-host');
+    Route::post('/test-broadcast', [MessageController::class, 'testBroadcast']);
+    
+    // Debug routes
     Route::get('/test-auth', function (Request $request) {
         return response()->json([
             'authenticated' => true,
@@ -106,8 +95,7 @@ Route::middleware('auth:sanctum')->group(function () {
             'user_id' => auth()->id()
         ]);
     });
-
-    // Test route for debugging decline functionality
+    
     Route::put('/test-decline-simple/{id}', function($id) {
         try {
             \Log::info('Simple test route called with ID: ' . $id);
@@ -122,31 +110,13 @@ Route::middleware('auth:sanctum')->group(function () {
             return response()->json(['error' => $e->getMessage()], 500);
         }
     });
-
-    // Auth routes
-    Route::post('/logout', [AuthController::class, 'logout']);
-    Route::post('/refresh', [AuthController::class, 'refresh']);
-    Route::post('/verify-email/resend', [AuthController::class, 'resendVerification']);
     
-    // User profile routes
-    Route::get('/profile', [AuthController::class, 'profile']);
-    Route::put('/profile', [AuthController::class, 'updateProfile']);
-    Route::put('/password', [AuthController::class, 'updatePassword']);
-    Route::delete('/account', [AuthController::class, 'deleteAccount']);
-    
-    // User preferences
-    Route::get('/preferences', [AuthController::class, 'getPreferences']);
-    Route::put('/preferences', [AuthController::class, 'updatePreferences']);
-
-    // Test upload route
-    Route::post('/test-upload', [ListingController::class, 'testUpload']);
-
-    // DIRECT HOST BOOKING ROUTES (No prefix/grouping complexity)
+    // Host booking routes
     Route::get('/host/bookings', [BookingController::class, 'hostBookings']);
     Route::put('/host/bookings/{id}/confirm', [BookingController::class, 'confirm']);
     Route::put('/host/bookings/{id}/decline', [BookingController::class, 'decline']);
-
-    // Host Listings CRUD (keeping the prefix structure for other routes)
+    
+    // Host listings
     Route::prefix('host')->name('host.')->group(function () {
         Route::get('/listings', [ListingController::class, 'index'])->name('listings.index');
         Route::post('/listings', [ListingController::class, 'store'])->name('listings.store');
@@ -154,43 +124,34 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/listings/{id}', [ListingController::class, 'update'])->name('listings.update');
         Route::delete('/listings/{id}', [ListingController::class, 'destroy'])->name('listings.destroy');
     });
-
-    // Bookings (guest bookings)
+    
+    Route::post('/test-upload', [ListingController::class, 'testUpload']);
+    
+    // Guest bookings
     Route::get('/bookings', [BookingController::class, 'index'])->name('bookings.index');
     Route::post('/bookings', [BookingController::class, 'store'])->name('bookings.store');
     Route::get('/bookings/{booking}', [BookingController::class, 'show'])->name('bookings.show');
     Route::put('/bookings/{booking}/cancel', [BookingController::class, 'cancel'])->name('bookings.cancel');
-
+    
     // Reviews
     Route::post('/reviews', [ReviewController::class, 'store'])->name('reviews.store');
     Route::get('/reviews/{review}', [ReviewController::class, 'show'])->name('reviews.show');
     Route::put('/reviews/{review}', [ReviewController::class, 'update'])->name('reviews.update');
     Route::delete('/reviews/{review}', [ReviewController::class, 'destroy'])->name('reviews.destroy');
-
+    
     // Favorites
     Route::get('/favorites', [FavoriteController::class, 'index'])->name('favorites.index');
     Route::post('/favorites', [FavoriteController::class, 'store'])->name('favorites.store');
     Route::delete('/favorites/{listing}', [FavoriteController::class, 'destroy'])->name('favorites.destroy');
-
-    // Messaging
-    Route::get('/conversations', [MessageController::class, 'conversations'])->name('conversations.index');
-    Route::post('/conversations', [MessageController::class, 'startConversation'])->name('conversations.store');
-    Route::get('/conversations/{conversation}/messages', [MessageController::class, 'messages'])->name('conversations.messages');
-    Route::post('/conversations/{conversation}/messages', [MessageController::class, 'send'])->name('conversations.send');
-
-    // Email verification routes
+    
+    // Email verification
     Route::get('/email/verify/{id}/{hash}', function (EmailVerificationRequest $request) {
         $request->fulfill();
         return response()->json(['message' => 'Email verified successfully']);
     })->name('verification.verify');
-
+    
     Route::post('/email/verification-notify', function (Request $request) {
         $request->user()->sendEmailVerificationNotification();
         return response()->json(['message' => 'Verification email sent!']);
     })->name('verification.send');
 });
-
-// Broadcasting authentication route
-Route::post('/broadcasting/auth', function (Request $request) {
-    return response()->json([]);
-})->middleware('auth:sanctum');

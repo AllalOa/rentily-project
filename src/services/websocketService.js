@@ -1,6 +1,9 @@
-// services/websocketService.js
+// src/services/websocketService.js - Fixed for Reverb/Pusher protocol
 import Echo from 'laravel-echo'
 import Pusher from 'pusher-js'
+
+// Make Pusher available globally for Laravel Echo
+window.Pusher = Pusher
 
 class WebSocketService {
   constructor() {
@@ -8,20 +11,22 @@ class WebSocketService {
     this.isConnected = false
     this.currentUser = null
     this.listeners = new Map()
+    this.reconnectAttempts = 0
+    this.maxReconnectAttempts = 5
+    this.reconnectTimeout = null
   }
 
-  // Initialize connection
   connect(user) {
     if (this.isConnected && this.currentUser?.id === user.id) {
+      console.log('WebSocket already connected for user:', user.id)
       return this.echo
     }
 
+    console.log('Connecting WebSocket for user:', user)
     this.currentUser = user
     
-    // Configure Pusher
-    window.Pusher = Pusher
-
-    // Get configuration from environment
+    this.disconnect()
+    
     const config = {
       broadcaster: 'reverb',
       key: import.meta.env.VITE_REVERB_APP_KEY,
@@ -30,6 +35,7 @@ class WebSocketService {
       wssPort: import.meta.env.VITE_REVERB_PORT || 9001,
       forceTLS: import.meta.env.VITE_REVERB_SCHEME === 'https',
       enabledTransports: ['ws', 'wss'],
+      authEndpoint: `${import.meta.env.VITE_API_URL}/api/broadcasting/auth`,
       auth: {
         headers: {
           Authorization: `Bearer ${this.getAuthToken()}`,
@@ -37,152 +43,288 @@ class WebSocketService {
       },
     }
 
-    console.log('WebSocket config:', config)
-
-    // Initialize Echo
-    this.echo = new Echo(config)
-
-    // Set connection status
-    this.isConnected = true
-
-    // Listen for connection events
-    this.echo.connector.pusher.connection.bind('connected', () => {
-      console.log('WebSocket connected')
-      this.isConnected = true
+    console.log('WebSocket config:', {
+      ...config,
+      auth: { headers: { Authorization: config.auth.headers.Authorization ? 'Present' : 'Missing' } }
     })
 
-    this.echo.connector.pusher.connection.bind('disconnected', () => {
-      console.log('WebSocket disconnected')
+    try {
+      this.echo = new Echo(config)
+      this.setupConnectionHandlers()
+      return this.echo
+    } catch (error) {
+      console.error('Failed to initialize Echo:', error)
       this.isConnected = false
-    })
-
-    this.echo.connector.pusher.connection.bind('error', (error) => {
-      console.error('WebSocket error:', error)
-      this.isConnected = false
-    })
+      this.scheduleReconnect()
+    }
 
     return this.echo
   }
 
-  // Listen to conversation channel
-  joinConversation(conversationId, callbacks = {}) {
-    if (!this.echo || !this.isConnected) {
-      console.warn('WebSocket not connected')
+  setupConnectionHandlers() {
+    if (!this.echo || !this.echo.connector) {
+      console.error('Echo or connector not available for event handlers')
       return
+    }
+
+    console.log('✅ Setting up connection handlers')
+
+    const pusher = this.echo.connector.pusher
+    
+    if (!pusher) {
+      console.error('Pusher instance not found')
+      return
+    }
+
+    pusher.connection.bind('connected', () => {
+      console.log('✅ Reverb WebSocket connected')
+      this.isConnected = true
+      this.reconnectAttempts = 0
+      this.rejoinChannels()
+    })
+
+    pusher.connection.bind('disconnected', () => {
+      console.log('❌ Reverb WebSocket disconnected')
+      this.isConnected = false
+    })
+
+    pusher.connection.bind('failed', () => {
+      console.error('❌ Reverb WebSocket connection failed')
+      this.isConnected = false
+      this.scheduleReconnect()
+    })
+
+    pusher.connection.bind('unavailable', () => {
+      console.error('❌ Reverb WebSocket unavailable')
+      this.isConnected = false
+      this.scheduleReconnect()
+    })
+
+    pusher.connection.bind('error', (error) => {
+      console.error('❌ Reverb WebSocket error:', error)
+      
+      if (error?.error?.data?.code === 4009) {
+        console.error('WebSocket authentication failed')
+        this.handleAuthError()
+      }
+    })
+
+    this.isConnected = pusher.connection.state === 'connected'
+    console.log('Initial connection status:', this.isConnected)
+    console.log('Pusher connection state:', pusher.connection.state)
+  }
+
+  scheduleReconnect() {
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      console.error('Max reconnection attempts reached')
+      return
+    }
+
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout)
+    }
+
+    const delay = Math.pow(2, this.reconnectAttempts) * 1000
+    console.log(`Scheduling reconnect in ${delay}ms (attempt ${this.reconnectAttempts + 1}/${this.maxReconnectAttempts})`)
+    
+    this.reconnectTimeout = setTimeout(() => {
+      this.reconnectAttempts++
+      if (this.currentUser) {
+        this.connect(this.currentUser)
+      }
+    }, delay)
+  }
+
+  handleAuthError() {
+    localStorage.removeItem('auth_token')
+    localStorage.removeItem('user_data')
+    sessionStorage.removeItem('auth_token')
+    window.dispatchEvent(new CustomEvent('websocket-auth-failed'))
+  }
+
+  rejoinChannels() {
+    console.log('Re-joining channels after reconnection')
+    const channelNames = Array.from(this.listeners.keys())
+    const currentListeners = new Map(this.listeners)
+    
+    this.listeners.clear()
+    
+    channelNames.forEach(channelName => {
+      const conversationId = channelName.replace('conversation.', '')
+      const callbacks = currentListeners.get(channelName)?.callbacks
+      if (callbacks) {
+        this.joinConversation(conversationId, callbacks)
+      }
+    })
+  }
+
+  joinConversation(conversationId, callbacks = {}) {
+    if (!this.echo) {
+      console.warn('❌ Echo not initialized, cannot join conversation')
+      return null
     }
 
     const channelName = `conversation.${conversationId}`
     
-    // Leave previous channel if exists
     if (this.listeners.has(channelName)) {
+      console.log('Leaving existing channel:', channelName)
       this.leaveConversation(conversationId)
     }
 
-    console.log(`Joining conversation channel: ${channelName}`)
+    console.log(`🔔 Joining conversation channel: ${channelName}`)
 
-    const channel = this.echo.private(channelName)
-    
-    // Listen for new messages
-    channel.listen('.message.sent', (data) => {
-      console.log('New message received:', data)
-      if (callbacks.onNewMessage) {
-        callbacks.onNewMessage(data)
-      }
-    })
+    try {
+      const channel = this.echo.private(channelName)
+      
+      channel.subscribed(() => {
+        console.log('✅ Successfully subscribed to channel:', channelName)
+      })
 
-    // Listen for typing indicators
-    channel.listen('.user.typing', (data) => {
-      console.log('Typing indicator:', data)
-      if (callbacks.onTyping) {
-        callbacks.onTyping(data)
-      }
-    })
+      channel.error((error) => {
+        console.error('❌ Channel subscription error:', channelName, error)
+      })
+      
+      channel.listen('message.sent', (data) => {
+        console.log('📨 New message received via WebSocket:', data)
+        if (callbacks.onNewMessage) {
+          callbacks.onNewMessage(data)
+        }
+      })
 
-    // Store channel reference
-    this.listeners.set(channelName, channel)
+      channel.listen('user.typing', (data) => {
+        console.log('⌨️ Typing indicator received:', data)
+        if (callbacks.onTyping) {
+          callbacks.onTyping(data)
+        }
+      })
 
-    return channel
+      this.listeners.set(channelName, { channel, callbacks })
+      
+      return channel
+    } catch (error) {
+      console.error('❌ Error joining conversation channel:', error)
+      return null
+    }
   }
 
-  // Leave conversation channel
   leaveConversation(conversationId) {
     const channelName = `conversation.${conversationId}`
     
     if (this.listeners.has(channelName)) {
-      console.log(`Leaving conversation channel: ${channelName}`)
-      this.echo.leaveChannel(channelName)
-      this.listeners.delete(channelName)
-    }
-  }
-
-  // Send typing indicator
-  sendTypingIndicator(conversationId, isTyping) {
-    if (!this.echo || !this.isConnected) {
-      return
-    }
-
-    fetch(`${import.meta.env.VITE_API_URL}/api/conversations/${conversationId}/typing`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.getAuthToken()}`,
-        'Accept': 'application/json'
-      },
-      body: JSON.stringify({ is_typing: isTyping })
-    }).catch(error => {
-      console.error('Error sending typing indicator:', error)
-    })
-  }
-
-  // Disconnect
-  disconnect() {
-    if (this.echo) {
-      // Leave all channels
-      this.listeners.forEach((channel, channelName) => {
+      console.log(`👋 Leaving conversation channel: ${channelName}`)
+      try {
         this.echo.leaveChannel(channelName)
+        this.listeners.delete(channelName)
+        console.log('✅ Successfully left channel:', channelName)
+      } catch (error) {
+        console.error('❌ Error leaving channel:', error)
+      }
+    }
+  }
+
+  async sendTypingIndicator(conversationId, isTyping) {
+    if (!this.echo || !this.isConnected) {
+      console.warn('❌ Cannot send typing indicator: WebSocket not connected')
+      return false
+    }
+
+    console.log(`⌨️ Sending typing indicator: ${isTyping} for conversation ${conversationId}`)
+
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/conversations/${conversationId}/typing`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.getAuthToken()}`,
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({ is_typing: isTyping })
+      })
+
+      if (response.ok) {
+        console.log('✅ Typing indicator sent successfully')
+        return true
+      } else {
+        console.error('❌ Failed to send typing indicator:', response.status)
+        return false
+      }
+    } catch (error) {
+      console.error('❌ Error sending typing indicator:', error)
+      return false
+    }
+  }
+
+  disconnect() {
+    console.log('🔌 Disconnecting WebSocket...')
+    
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout)
+      this.reconnectTimeout = null
+    }
+    
+    if (this.echo) {
+      this.listeners.forEach((_, channelName) => {
+        console.log('👋 Leaving channel:', channelName)
+        try {
+          this.echo.leaveChannel(channelName)
+        } catch (error) {
+          console.warn('Error leaving channel:', channelName, error)
+        }
       })
       this.listeners.clear()
 
-      // Disconnect Echo
       this.echo.disconnect()
       this.echo = null
       this.isConnected = false
       this.currentUser = null
+      this.reconnectAttempts = 0
+      console.log('✅ WebSocket disconnected')
     }
   }
 
-  // Get auth token
   getAuthToken() {
     return localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token')
   }
 
-  // Check if connected
   isWebSocketConnected() {
     return this.isConnected && this.echo !== null
   }
 
-  // Reconnect if needed
   reconnect() {
     if (this.currentUser && !this.isConnected) {
-      console.log('Reconnecting WebSocket...')
+      console.log('🔄 Manually reconnecting WebSocket...')
       this.connect(this.currentUser)
+    }
+  }
+
+  getConnectionStatus() {
+    return {
+      connected: this.isConnected,
+      hasEcho: !!this.echo,
+      activeChannels: Array.from(this.listeners.keys()),
+      reconnectAttempts: this.reconnectAttempts,
     }
   }
 }
 
-// Create singleton instance
 export const websocketService = new WebSocketService()
 
-// Auto-reconnect on visibility change
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') {
-    websocketService.reconnect()
+    console.log('👁️ Page visible, checking WebSocket connection...')
+    if (!websocketService.isWebSocketConnected()) {
+      websocketService.reconnect()
+    }
   }
 })
 
-// Auto-reconnect on online
 window.addEventListener('online', () => {
+  console.log('🌐 Back online, reconnecting WebSocket...')
   websocketService.reconnect()
+})
+
+window.addEventListener('websocket-auth-failed', () => {
+  console.log('🔐 WebSocket authentication failed, redirecting to login...')
 })
 
 export default websocketService

@@ -11,6 +11,8 @@ use App\Events\UserTyping;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Broadcast;
 
 class MessageController extends Controller
 {
@@ -130,7 +132,7 @@ class MessageController extends Controller
     }
 
     /**
-     * Send a new message
+     * Send a new message with improved broadcasting
      */
     public function send(Request $request, Conversation $conversation)
     {
@@ -167,21 +169,47 @@ class MessageController extends Controller
             // Update conversation's updated_at timestamp
             $conversation->touch();
 
-            // Load the sender relationship
+            // Load the sender relationship for broadcasting
             $message->load('sender:id,name,email,avatar');
 
+            // Log the broadcasting attempt
+            Log::info('Broadcasting message', [
+                'message_id' => $message->id,
+                'conversation_id' => $conversation->id,
+                'sender_id' => $message->sender_id,
+                'channel' => 'conversation.' . $conversation->id
+            ]);
+
             // Broadcast the message to all conversation participants
-            broadcast(new MessageSent($message))->toOthers();
+            try {
+                broadcast(new MessageSent($message));
+                Log::info('Message broadcasted successfully', ['message_id' => $message->id]);
+            } catch (\Exception $broadcastError) {
+                Log::error('Failed to broadcast message', [
+                    'message_id' => $message->id,
+                    'error' => $broadcastError->getMessage(),
+                    'trace' => $broadcastError->getTraceAsString()
+                ]);
+                // Don't fail the request if broadcasting fails
+            }
 
             DB::commit();
 
             return response()->json([
                 'success' => true,
-                'data' => $message
+                'data' => $message,
+                'message' => 'Message sent successfully'
             ], 201);
 
         } catch (\Exception $e) {
             DB::rollback();
+            
+            Log::error('Failed to send message', [
+                'conversation_id' => $conversation->id,
+                'sender_id' => auth()->id(),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             
             return response()->json([
                 'success' => false,
@@ -212,7 +240,7 @@ class MessageController extends Controller
     }
 
     /**
-     * Broadcast typing indicator
+     * Broadcast typing indicator with better error handling
      */
     public function typing(Request $request, Conversation $conversation)
     {
@@ -229,17 +257,45 @@ class MessageController extends Controller
 
         $user = auth()->user();
 
-        broadcast(new UserTyping(
-            $conversation->id,
-            $user->id,
-            $user->name,
-            $data['is_typing']
-        ))->toOthers();
+        try {
+            // Log the typing broadcast attempt
+            Log::info('Broadcasting typing indicator', [
+                'conversation_id' => $conversation->id,
+                'user_id' => $user->id,
+                'is_typing' => $data['is_typing'],
+                'channel' => 'conversation.' . $conversation->id
+            ]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Typing status broadcasted'
-        ]);
+            broadcast(new UserTyping(
+                $conversation->id,
+                $user->id,
+                $user->name,
+                $data['is_typing']
+            ));
+
+            Log::info('Typing indicator broadcasted successfully', [
+                'conversation_id' => $conversation->id,
+                'user_id' => $user->id
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Typing status broadcasted'
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to broadcast typing indicator', [
+                'conversation_id' => $conversation->id,
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to broadcast typing status',
+                'error' => config('app.debug') ? $e->getMessage() : null
+            ], 500);
+        }
     }
 
     /**
@@ -304,7 +360,7 @@ class MessageController extends Controller
     }
 
     /**
-     * Start conversation from listing (Contact Host functionality)
+     * Start conversation from listing (Contact Host functionality) with improved broadcasting
      */
     public function contactHost(Request $request)
     {
@@ -342,8 +398,24 @@ class MessageController extends Controller
             $conversation->touch();
             $message->load('sender:id,name,email,avatar');
 
+            // Log the broadcasting attempt
+            Log::info('Broadcasting contact host message', [
+                'message_id' => $message->id,
+                'conversation_id' => $conversation->id,
+                'sender_id' => $message->sender_id,
+                'listing_id' => $data['listing_id']
+            ]);
+
             // Broadcast the message
-            broadcast(new MessageSent($message))->toOthers();
+            try {
+                broadcast(new MessageSent($message));
+                Log::info('Contact host message broadcasted successfully', ['message_id' => $message->id]);
+            } catch (\Exception $broadcastError) {
+                Log::error('Failed to broadcast contact host message', [
+                    'message_id' => $message->id,
+                    'error' => $broadcastError->getMessage()
+                ]);
+            }
 
             DB::commit();
 
@@ -359,10 +431,73 @@ class MessageController extends Controller
         } catch (\Exception $e) {
             DB::rollback();
             
+            Log::error('Failed to send contact host message', [
+                'listing_id' => $data['listing_id'],
+                'sender_id' => $userId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to send message',
                 'error' => config('app.debug') ? $e->getMessage() : null
+            ], 500);
+        }
+    }
+
+    /**
+     * Test broadcasting functionality
+     */
+    public function testBroadcast(Request $request)
+    {
+        $data = $request->validate([
+            'conversation_id' => 'required|exists:conversations,id'
+        ]);
+
+        $conversation = Conversation::findOrFail($data['conversation_id']);
+        
+        if (!$conversation->isParticipant(auth()->id())) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Unauthorized'
+            ], 403);
+        }
+
+        try {
+            // Create a test message
+            $testMessage = new Message([
+                'conversation_id' => $conversation->id,
+                'sender_id' => auth()->id(),
+                'content' => 'Test broadcast message',
+                'read_status' => false,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            
+            $testMessage->sender = auth()->user();
+
+            broadcast(new MessageSent($testMessage));
+
+            Log::info('Test broadcast sent', [
+                'conversation_id' => $conversation->id,
+                'user_id' => auth()->id()
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Test broadcast sent successfully'
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Test broadcast failed', [
+                'conversation_id' => $conversation->id,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Test broadcast failed',
+                'error' => $e->getMessage()
             ], 500);
         }
     }

@@ -5,50 +5,34 @@ namespace App\Events;
 use App\Models\Message;
 use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Broadcasting\PresenceChannel;
 use Illuminate\Broadcasting\PrivateChannel;
-use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
 
-class MessageSent implements ShouldBroadcast
+class MessageSent implements ShouldBroadcastNow
 {
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public $message;
 
-    /**
-     * Create a new event instance.
-     */
     public function __construct(Message $message)
     {
-        $this->message = $message;
+        // Make sure sender is loaded
+        $this->message = $message->load('sender:id,name,email,avatar');
     }
 
-    /**
-     * Get the channels the event should broadcast on.
-     *
-     * @return array<int, \Illuminate\Broadcasting\Channel>
-     */
-    public function broadcastOn(): array
+    public function broadcastOn()
     {
-        return [
-            new PrivateChannel('conversation.' . $this->message->conversation_id),
-        ];
+        return new PrivateChannel('conversation.' . $this->message->conversation_id);
     }
 
-    /**
-     * The event's broadcast name.
-     */
-    public function broadcastAs(): string
+    public function broadcastAs()
     {
         return 'message.sent';
     }
 
-    /**
-     * Get the data to broadcast.
-     */
-    public function broadcastWith(): array
+    public function broadcastWith()
     {
         return [
             'id' => $this->message->id,
@@ -57,11 +41,14 @@ class MessageSent implements ShouldBroadcast
             'sender' => [
                 'id' => $this->message->sender->id,
                 'name' => $this->message->sender->name,
+                'email' => $this->message->sender->email,
                 'avatar' => $this->message->sender->avatar,
             ],
             'content' => $this->message->content,
             'attachment' => $this->message->attachment,
+            'read_status' => $this->message->read_status,
             'created_at' => $this->message->created_at->toISOString(),
+            'updated_at' => $this->message->updated_at->toISOString(),
         ];
     }
 }
