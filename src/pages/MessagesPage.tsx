@@ -164,6 +164,10 @@ export function MessagesPage() {
   const [conversations, setConversations] = useState([])
   const [selectedConversation, setSelectedConversation] = useState(null)
   const [messages, setMessages] = useState([])
+  const [allMessages, setAllMessages] = useState([])
+  const [displayedMessageCount, setDisplayedMessageCount] = useState(6)
+  const [hasMoreMessages, setHasMoreMessages] = useState(false)
+  const [loadingMoreMessages, setLoadingMoreMessages] = useState(false)
   const [newMessage, setNewMessage] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
@@ -175,13 +179,11 @@ export function MessagesPage() {
   const [typingUsers, setTypingUsers] = useState(new Set())
   
   const messagesEndRef = useRef(null)
-  const messagesContainerRef = useRef(null)
   const typingTimeoutRef = useRef(null)
   const echoRef = useRef(null)
   const channelRef = useRef(null)
   const currentUserId = getCurrentUserId()
   const currentUser = getCurrentUser()
-  const previousMessagesLengthRef = useRef(0)
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768)
@@ -267,7 +269,7 @@ export function MessagesPage() {
         console.log('📨 MESSAGE RECEIVED:', data)
         
         if (data.conversation_id === selectedConversation.id) {
-          setMessages(prev => {
+          setAllMessages(prev => {
             const exists = prev.find(msg => msg.id === data.id)
             if (exists) return prev
             return [...prev, {
@@ -337,25 +339,20 @@ export function MessagesPage() {
   useEffect(() => {
     if (selectedConversation) {
       fetchMessages(selectedConversation.id)
+    } else {
+      setAllMessages([])
+      setMessages([])
+      setDisplayedMessageCount(6)
+      setHasMoreMessages(false)
     }
   }, [selectedConversation])
 
+  // Update displayed messages when allMessages or displayedMessageCount changes
   useEffect(() => {
-    // Only auto-scroll if:
-    // 1. It's a new message (not initial load)
-    // 2. User is near the bottom already
-    const container = messagesContainerRef.current
-    if (!container) return
-
-    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100
-    const hasNewMessage = messages.length > previousMessagesLengthRef.current
-
-    if (hasNewMessage && isNearBottom) {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-    }
-
-    previousMessagesLengthRef.current = messages.length
-  }, [messages])
+    const messagesToShow = allMessages.slice(-displayedMessageCount)
+    setMessages(messagesToShow)
+    setHasMoreMessages(allMessages.length > displayedMessageCount)
+  }, [allMessages, displayedMessageCount])
 
   const fetchConversations = async () => {
     try {
@@ -414,16 +411,24 @@ export function MessagesPage() {
       const data = await response.json()
       
       if (data.success) {
-        setMessages(data.data || [])
+        setAllMessages(data.data || [])
       } else {
         throw new Error(data.message || 'Failed to load messages')
       }
     } catch (err) {
       console.error('Error fetching messages:', err)
-      setMessages([])
+      setAllMessages([])
     } finally {
       setLoadingMessages(false)
     }
+  }
+
+  const loadMoreMessages = () => {
+    setLoadingMoreMessages(true)
+    setTimeout(() => {
+      setDisplayedMessageCount(prev => prev + 6)
+      setLoadingMoreMessages(false)
+    }, 300)
   }
 
   const handleSendMessage = async () => {
@@ -453,7 +458,7 @@ export function MessagesPage() {
         setNewMessage('')
         
         if (!isWebSocketConnected) {
-          setMessages(prev => [...prev, data.data])
+          setAllMessages(prev => [...prev, data.data])
           setConversations(prev => 
             prev.map(conv => 
               conv.id === selectedConversation.id 
@@ -668,32 +673,54 @@ export function MessagesPage() {
           </div>
         </div>
 
-        <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {loadingMessages ? (
             <div className="flex items-center justify-center py-8">
               <Loader2 className="h-6 w-6 animate-spin text-blue-600" />
               <span className="ml-2 text-gray-600">Loading messages...</span>
             </div>
-          ) : messages.length === 0 ? (
+          ) : allMessages.length === 0 ? (
             <div className="text-center text-gray-600 py-8">No messages yet. Start the conversation!</div>
           ) : (
-            messages.map((message) => {
-              const isOwnMessage = message.sender_id === parseInt(currentUserId)
+            <>
+              {hasMoreMessages && (
+                <div className="flex justify-center">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={loadMoreMessages}
+                    disabled={loadingMoreMessages}
+                  >
+                    {loadingMoreMessages ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Loading...
+                      </>
+                    ) : (
+                      `Load previous messages (${allMessages.length - displayedMessageCount} more)`
+                    )}
+                  </Button>
+                </div>
+              )}
               
-              return (
-                <div key={message.id} className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`flex space-x-2 max-w-xs lg:max-w-md ${isOwnMessage ? 'flex-row-reverse space-x-reverse' : ''}`}>
-                    <Avatar src={message.sender?.avatar} name={message.sender?.name || 'User'} size="sm" />
-                    <div className={`flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'}`}>
-                      <div className={`px-4 py-2 rounded-lg ${isOwnMessage ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'}`}>
-                        <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+              {messages.map((message) => {
+                const isOwnMessage = message.sender_id === parseInt(currentUserId)
+                
+                return (
+                  <div key={message.id} className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`flex space-x-2 max-w-xs lg:max-w-md ${isOwnMessage ? 'flex-row-reverse space-x-reverse' : ''}`}>
+                      <Avatar src={message.sender?.avatar} name={message.sender?.name || 'User'} size="sm" />
+                      <div className={`flex flex-col ${isOwnMessage ? 'items-end' : 'items-start'}`}>
+                        <div className={`px-4 py-2 rounded-lg ${isOwnMessage ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-900'}`}>
+                          <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                        </div>
+                        <span className="text-xs text-gray-500 mt-1">{formatRelativeTime(message.created_at)}</span>
                       </div>
-                      <span className="text-xs text-gray-500 mt-1">{formatRelativeTime(message.created_at)}</span>
                     </div>
                   </div>
-                </div>
-              )
-            })
+                )
+              })}
+            </>
           )}
           
           {Array.from(typingUsers).map(userName => (
@@ -729,20 +756,20 @@ export function MessagesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Messages</h1>
-          <p className="text-gray-600">Communicate with hosts and guests</p>
-        </div>
-
-        <Card className="overflow-hidden" style={{ height: 'calc(100vh - 200px)' }}>
-          <div className="flex h-full">
-            {renderConversationList()}
-            {renderChatArea()}
-          </div>
-        </Card>
+  <div className="min-h-screen bg-gray-50">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Messages</h1>
+        <p className="text-gray-600">Communicate with hosts and guests</p>
       </div>
+
+      <Card className="overflow-hidden" style={{ height: 'calc(100vh - 200px)' }}>
+        <div className="flex h-full">
+          {renderConversationList()}
+          {renderChatArea()}
+        </div>
+      </Card>
     </div>
-  )
+  </div>
+)
 }
