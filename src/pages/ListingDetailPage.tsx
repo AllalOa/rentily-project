@@ -741,25 +741,41 @@ export const ListingDetailPage = () => {
             </div>
 
             {/* Host Information */}
-            <Card className="p-6">
-              <div className="flex items-center space-x-4">
-                <div className="w-12 h-12 bg-gray-200 rounded-full flex items-center justify-center">
-                  <User className="h-6 w-6 text-gray-500" />
-                </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900">
-                    Hosted by {listing.host?.name || 'Host'}
-                  </h3>
-                  <p className="text-sm text-gray-600">Joined in 2023</p>
-                </div>
-                <div className="ml-auto">
-                  <Button variant="outline" size="sm" onClick={handleContactHost}>
-                    <MessageCircle className="h-4 w-4 mr-2" />
-                    Contact Host
-                  </Button>
-                </div>
-              </div>
-            </Card>
+           <Card className="p-6">
+  <div className="flex items-center space-x-4">
+    {/* Host Avatar */}
+    <div className="w-12 h-12 rounded-full overflow-hidden border border-gray-300">
+      {listing.host?.avatar ? (
+        <img
+          src={listing.host.avatar}
+          alt={listing.host.name || 'Host'}
+          className="w-full h-full object-cover"
+        />
+      ) : (
+        <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+          <User className="h-6 w-6 text-gray-500" />
+        </div>
+      )}
+    </div>
+
+    {/* Host Info */}
+    <div>
+      <h3 className="font-semibold text-gray-900">
+        Hosted by {listing.host?.name || 'Host'}
+      </h3>
+      <p className="text-sm text-gray-600">Joined in 2023</p>
+    </div>
+
+    {/* Contact Host Button */}
+    <div className="ml-auto">
+      <Button variant="outline" size="sm" onClick={handleContactHost}>
+        <MessageCircle className="h-4 w-4 mr-2" />
+        Contact Host
+      </Button>
+    </div>
+  </div>
+</Card>
+
 
             {/* Description */}
             <Card className="p-6">

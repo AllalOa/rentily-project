@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { Search, Menu, X, User, Heart, MessageCircle, Bell } from 'lucide-react'
+import { Search, Menu, X, Heart, MessageCircle, Bell } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Avatar } from '@/components/ui/Avatar'
@@ -90,40 +90,45 @@ export const Header: React.FC = () => {
               <Search className="h-5 w-5" />
             </Button>
 
-            {/* Notifications */}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="relative"
-              aria-label="Notifications"
-            >
-              <Bell className="h-5 w-5" />
-              <Badge
-                variant="error"
-                size="sm"
-                className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0"
-              >
-                3
-              </Badge>
-            </Button>
+            {/* Icons for Authenticated Users */}
+            {isAuthenticated && (
+              <>
+                {/* Notifications */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="relative"
+                  aria-label="Notifications"
+                >
+                  <Bell className="h-5 w-5" />
+                  <Badge
+                    variant="error"
+                    size="sm"
+                    className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0"
+                  >
+                    3
+                  </Badge>
+                </Button>
 
-            {/* Messages */}
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Messages"
-            >
-              <MessageCircle className="h-5 w-5" />
-            </Button>
+                {/* Messages */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Messages"
+                >
+                  <MessageCircle className="h-5 w-5" />
+                </Button>
 
-            {/* Favorites */}
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label="Favorites"
-            >
-              <Heart className="h-5 w-5" />
-            </Button>
+                {/* Favorites */}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Favorites"
+                >
+                  <Heart className="h-5 w-5" />
+                </Button>
+              </>
+            )}
 
             {/* User Menu / Auth */}
             {isAuthenticated ? (
@@ -135,11 +140,12 @@ export const Header: React.FC = () => {
                   className="flex items-center space-x-2"
                   aria-label="User menu"
                 >
-                  <Avatar
-                    src={user?.avatar || ''}
-                    name={user?.name || 'User'}
-                    size="sm"
-                  />
+              <Avatar
+  src={user?.avatar || ''}
+  name={user?.name || 'User'}
+  className="w-14 h-14 rounded-full border-2 border-gray-300"
+/>
+
                 </Button>
 
                 {/* User Dropdown */}

@@ -83,25 +83,34 @@ class AuthController extends Controller
         return response()->json(['message' => 'Logged out successfully']);
     }
 
-    public function profile(Request $request)
-    {
-        return response()->json($request->user());
+   public function profile(Request $request)
+{
+    return response()->json($request->user());
+}
+
+public function updateProfile(Request $request)
+{
+    $user = $request->user();
+
+    $validated = $request->validate([
+        'name' => 'required|string|max:255',
+        'email' => 'required|email|unique:users,email,' . $user->id,
+        'avatar' => 'nullable|image|mimes:jpg,jpeg,png|max:2048',
+    ]);
+
+    if ($request->hasFile('avatar')) {
+        $path = $request->file('avatar')->store('avatars', 'public');
+        $validated['avatar'] = '/storage/' . $path;
     }
 
-    public function updateProfile(Request $request)
-    {
-        $user = $request->user();
-        
-        $data = $request->validate([
-            'name' => 'sometimes|string|max:255',
-            'email' => 'sometimes|email|unique:users,email,' . $user->id,
-            'role' => 'sometimes|in:guest,host,admin',
-        ]);
+    $user->update($validated);
 
-        $user->update($data);
+    return response()->json([
+        'message' => 'Profile updated successfully!',
+        'user' => $user,
+    ]);
+}
 
-        return response()->json($user);
-    }
 
     public function updatePassword(Request $request)
     {

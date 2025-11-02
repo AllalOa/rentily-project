@@ -15,7 +15,7 @@ import { ErrorBoundary } from '@/components/ErrorBoundary'
 import { GuestRoute } from '@/components/routes/GuestRoute'
 import { HostRoute } from '@/components/routes/HostRoute'
 import { ToastProvider } from '@/components/ui/use-toast'  
-
+import { ProfilePage } from '@/pages/ProfilePage'
 
 function App() {
   return (
@@ -38,6 +38,7 @@ function App() {
                 </GuestRoute>
               }
             />
+             <Route path="/profile" element={<ProfilePage />} />
             <Route
               path="/host/dashboard"
               element={

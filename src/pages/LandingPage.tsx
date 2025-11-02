@@ -68,6 +68,51 @@ export const LandingPage: React.FC = () => {
       avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&h=150&fit=crop&crop=face'
     }
   ]
+const RotatingImages = () => {
+  const images = [
+    "https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1000&h=800&fit=crop", // villa
+    "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=1000&h=800&fit=crop", // pool villa
+    "https://images.unsplash.com/photo-1503736334956-4c8f8e92946d?w=1000&h=800&fit=crop", // BMW
+    "https://images.unsplash.com/photo-1502877338535-766e1452684a?w=1000&h=800&fit=crop", // Mercedes
+    
+  ];
+
+  const [activeIndex, setActiveIndex] = React.useState(0);
+
+  React.useEffect(() => {
+    const timer = setInterval(() => {
+      setActiveIndex((prev) => (prev + 1) % images.length);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [images.length]);
+
+  return (
+    <div className="relative w-full h-[550px] sm:h-[650px] lg:h-[750px] flex items-center justify-center">
+      {images.map((img, i) => {
+        const rotation = -10 + i * 5;
+        const offset = i * 20; // distance between stacked images
+        const isActive = i === activeIndex;
+
+        return (
+          <img
+            key={i}
+            src={img}
+            alt={`stacked-${i}`}
+            className={`absolute rounded-2xl shadow-2xl object-cover transition-all duration-700 ease-in-out
+              ${isActive ? "scale-105 z-30 opacity-100" : "scale-95 z-10 opacity-90"}`}
+            style={{
+              width: "80%",
+              height: "80%",
+              transform: `rotate(${rotation}deg) translateY(-${offset / 3}px) translateX(${offset / 2}px)`,
+              filter: isActive ? "brightness(1)" : "brightness(0.9)",
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+};
+
 
   return (
     <div className="min-h-screen">
@@ -144,35 +189,10 @@ export const LandingPage: React.FC = () => {
             </div>
 
             {/* Hero Image */}
-            <div className="relative">
-              <div className="relative z-10">
-                <img
-                  src="https://images.unsplash.com/photo-1566073771259-6a8506099945?w=800&h=600&fit=crop"
-                  alt="Beautiful rental property"
-                  className="rounded-2xl shadow-2xl"
-                />
-                <div className="absolute -bottom-6 -left-6 bg-white rounded-xl p-4 shadow-lg">
-                  <div className="flex items-center space-x-3">
-                    <div className="flex -space-x-2">
-                      {[1, 2, 3].map((i) => (
-                        <img
-                          key={i}
-                          src={`https://images.unsplash.com/photo-${1494790108755 + i}?w=40&h=40&fit=crop&crop=face`}
-                          alt={`User ${i}`}
-                          className="h-8 w-8 rounded-full border-2 border-white"
-                        />
-                      ))}
-                    </div>
-                    <div>
-                      <div className="flex items-center space-x-1">
-                        <StarRating rating={4.9} size="sm" showValue />
-                      </div>
-                      <p className="text-xs text-secondary-600">2,500+ reviews</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+           <div className="relative z-10">
+  <RotatingImages />
+</div>
+
           </div>
         </div>
 
